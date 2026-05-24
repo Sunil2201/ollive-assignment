@@ -1,0 +1,11 @@
+Metadata-Version: 2.4
+Name: llm-sdk
+Version: 0.1.0
+Summary: Internal LLM routing, context management, PII redaction and observability SDK
+Requires-Python: >=3.11
+Requires-Dist: anthropic
+Requires-Dist: openai
+Requires-Dist: google-genai
+Requires-Dist: tiktoken
+Requires-Dist: redis
+Requires-Dist: python-dotenv

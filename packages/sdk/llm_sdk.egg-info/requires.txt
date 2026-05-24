@@ -1,0 +1,6 @@
+anthropic
+openai
+google-genai
+tiktoken
+redis
+python-dotenv

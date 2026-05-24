@@ -1,0 +1,47 @@
+/* ============================================================
+   Design Tokens — LLM Logger
+   ============================================================ */
+
+:root {
+  /* Page & surface */
+  --color-page-bg:        #F8F9FC;
+  --color-sidebar-bg:     #F1F3F9;
+  --color-card-bg:        #FFFFFF;
+  --color-border:         #E2E8F0;
+
+  /* Accent — Indigo */
+  --color-accent:         #6366F1;
+  --color-accent-hover:   #4F46E5;
+  --color-accent-subtle:  #EEF2FF;
+  --color-accent-text:    #4338CA;
+
+  /* Text */
+  --color-text-primary:   #0F172A;
+  --color-text-secondary: #64748B;
+  --color-text-hint:      #94A3B8;
+
+  /* Provider badges */
+  --color-anthropic-bg:   #EEF2FF;
+  --color-anthropic-text: #4338CA;
+  --color-openai-bg:      #F0FDF4;
+  --color-openai-text:    #15803D;
+  --color-gemini-bg:      #FFF7ED;
+  --color-gemini-text:    #C2410C;
+
+  /* Status badges */
+  --color-active-bg:      #F0FDF4;
+  --color-active-text:    #15803D;
+  --color-cancelled-bg:   #FEF2F2;
+  --color-cancelled-text: #DC2626;
+
+  /* Border radius */
+  --radius-sm:   4px;
+  --radius-md:   8px;
+  --radius-lg:   12px;
+  --radius-pill: 999px;
+
+  /* Layout geometry */
+  --nav-height:    52px;
+  --sidebar-width: 260px;
+  --icon-size:     28px;
+}

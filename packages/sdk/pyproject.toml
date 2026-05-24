@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llm-sdk"
+version = "0.1.0"
+description = "Internal LLM routing, context management, PII redaction and observability SDK"
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic",
+    "openai",
+    "google-genai",
+    "tiktoken",
+    "redis",
+    "python-dotenv",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["llm_sdk*"]
