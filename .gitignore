@@ -1,9 +1,15 @@
 node_modules
 __pycache__
 .env
+.env.local
+.env.*.local
 *.pyc
 .DS_Store
+Thumbs.db
 dist
 .next
 apps/*/venv/
 packages/*/venv/
+
+# JetBrains IDE
+.idea/
