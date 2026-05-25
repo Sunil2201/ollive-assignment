@@ -8,8 +8,6 @@ from typing import Any
 
 @dataclass
 class InferenceLog:
-    """Mirrors the inference_logs table in the database."""
-
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     conversation_id: str | None = None
     provider: str = ""
@@ -23,13 +21,12 @@ class InferenceLog:
     error_message: str | None = None
     request_at: datetime | None = None
     response_at: datetime | None = None
-    input_preview: str | None = None   # first 500 chars of stringified messages
-    output_preview: str | None = None  # first 500 chars of response
+    input_preview: str | None = None
+    output_preview: str | None = None
     pii_redacted: bool = False
     raw_metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialise to a JSON-safe dict for transport."""
         return {
             "id": self.id,
             "conversation_id": self.conversation_id,
@@ -53,7 +50,5 @@ class InferenceLog:
 
 @dataclass
 class ChatOptions:
-    """Per-call options passed to LLMClient.chat() and LLMClient.stream()."""
-
     conversation_id: str | None = None
     max_tokens: int = 8096

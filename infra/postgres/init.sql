@@ -1,8 +1,5 @@
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
--- ─────────────────────────────────────────────
--- Tables
--- ─────────────────────────────────────────────
 
 CREATE TABLE conversations (
     id           UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -42,9 +39,6 @@ CREATE TABLE inference_logs (
     created_at        TIMESTAMPTZ   NOT NULL DEFAULT NOW()
 );
 
--- ─────────────────────────────────────────────
--- Auto-update trigger for conversations.updated_at
--- ─────────────────────────────────────────────
 
 CREATE OR REPLACE FUNCTION set_updated_at()
 RETURNS TRIGGER AS $$
@@ -59,9 +53,6 @@ CREATE TRIGGER trg_conversations_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION set_updated_at();
 
--- ─────────────────────────────────────────────
--- Indexes
--- ─────────────────────────────────────────────
 
 CREATE INDEX idx_conversations_session ON conversations(session_id);
 

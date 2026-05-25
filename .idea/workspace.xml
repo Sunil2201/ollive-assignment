@@ -3,11 +3,13 @@
   <component name="ChangeListManager">
     <list default="true" id="81612ca5-70ed-4772-943f-3783eefa8f4e" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/ingestion/app.py" beforeDir="false" afterPath="$PROJECT_DIR$/apps/ingestion/app.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/ingestion/consumer.py" beforeDir="false" afterPath="$PROJECT_DIR$/apps/ingestion/consumer.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/ingestion/routes.py" beforeDir="false" afterPath="$PROJECT_DIR$/apps/ingestion/routes.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/ingestion/validator.py" beforeDir="false" afterPath="$PROJECT_DIR$/apps/ingestion/validator.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/ingestion/writer.py" beforeDir="false" afterPath="$PROJECT_DIR$/apps/ingestion/writer.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/postgres/init.sql" beforeDir="false" afterPath="$PROJECT_DIR$/infra/postgres/init.sql" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/packages/sdk/llm_sdk/client.py" beforeDir="false" afterPath="$PROJECT_DIR$/packages/sdk/llm_sdk/client.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/packages/sdk/llm_sdk/context.py" beforeDir="false" afterPath="$PROJECT_DIR$/packages/sdk/llm_sdk/context.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/packages/sdk/llm_sdk/providers.py" beforeDir="false" afterPath="$PROJECT_DIR$/packages/sdk/llm_sdk/providers.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/packages/sdk/llm_sdk/redactor.py" beforeDir="false" afterPath="$PROJECT_DIR$/packages/sdk/llm_sdk/redactor.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/packages/sdk/llm_sdk/transport.py" beforeDir="false" afterPath="$PROJECT_DIR$/packages/sdk/llm_sdk/transport.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/packages/sdk/llm_sdk/types.py" beforeDir="false" afterPath="$PROJECT_DIR$/packages/sdk/llm_sdk/types.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
