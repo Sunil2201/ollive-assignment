@@ -6,6 +6,7 @@ export interface Conversation {
   created_at: string;
   updated_at: string;
   message_count: number;
+  primary_provider?: string | null;
 }
 
 export interface Message {

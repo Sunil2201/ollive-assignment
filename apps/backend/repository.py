@@ -1,4 +1,5 @@
-﻿import uuid
+import uuid
+from datetime import timezone
 
 from utils import rows_as_dicts
 
@@ -48,7 +49,12 @@ def list_conversations(cur, session_id: str) -> list[dict]:
             c.status,
             c.created_at,
             c.updated_at,
-            COUNT(m.id) AS message_count
+            COUNT(m.id) AS message_count,
+            (
+                SELECT MODE() WITHIN GROUP (ORDER BY il.provider)
+                FROM inference_logs il
+                WHERE il.conversation_id = c.id
+            ) AS primary_provider
         FROM conversations c
         LEFT JOIN messages m ON m.conversation_id = c.id
         WHERE c.session_id = %s
@@ -230,7 +236,7 @@ def get_metrics_summary(cur, session_id: str, from_dt, to_dt) -> dict:
     cols = [d[0] for d in cur.description]
     latency_over_time = [
         {
-            "hour": r["hour"].strftime("%H:%M"),
+            "hour": (r["hour"].astimezone(timezone.utc) if r["hour"].tzinfo else r["hour"]).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "p50":  int(r["p50"] or 0),
             "p95":  int(r["p95"] or 0),
             "p99":  int(r["p99"] or 0),
@@ -254,7 +260,10 @@ def get_metrics_summary(cur, session_id: str, from_dt, to_dt) -> dict:
     )
     cols = [d[0] for d in cur.description]
     throughput = [
-        {"hour": r["hour"].strftime("%H:%M"), "count": int(r["count"] or 0)}
+        {
+            "hour": (r["hour"].astimezone(timezone.utc) if r["hour"].tzinfo else r["hour"]).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "count": int(r["count"] or 0)
+        }
         for r in (dict(zip(cols, row)) for row in cur.fetchall())
     ]
 

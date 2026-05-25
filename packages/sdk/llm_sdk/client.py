@@ -13,7 +13,7 @@ from .types import ChatOptions, InferenceLog
 PROVIDER_MODELS: dict[str, str] = {
     "anthropic": "claude-sonnet-4-6",
     "openai":    "gpt-4.1-mini",
-    "gemini":    "gemini-2.0-flash",
+    "gemini":    "gemini-2.5-flash",
 }
 
 

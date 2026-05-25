@@ -111,8 +111,12 @@ function SelectLabel({
 function SelectItem({
   className,
   children,
+  label,
   ...props
-}: SelectPrimitive.Item.Props) {
+}: SelectPrimitive.Item.Props & {
+  /** If provided, only this text is mirrored into the trigger; children are shown only in the dropdown. */
+  label?: React.ReactNode
+}) {
   return (
     <SelectPrimitive.Item
       data-slot="select-item"
@@ -122,9 +126,15 @@ function SelectItem({
       )}
       {...props}
     >
-      <SelectPrimitive.ItemText className="flex flex-1 shrink-0 gap-2 whitespace-nowrap">
-        {children}
+      {/* ItemText mirrors to the trigger. When a label is set, hide it visually
+          in the dropdown (children handles display) but keep it in the DOM for the mirror. */}
+      <SelectPrimitive.ItemText
+        className={cn("flex flex-1 shrink-0 gap-2 whitespace-nowrap", label && "sr-only")}
+      >
+        {label ?? children}
       </SelectPrimitive.ItemText>
+      {/* Dropdown-only visual content */}
+      {label && <span className="flex flex-1 flex-col gap-0.5">{children}</span>}
       <SelectPrimitive.ItemIndicator
         render={
           <span className="pointer-events-none absolute right-2 flex size-4 items-center justify-center" />

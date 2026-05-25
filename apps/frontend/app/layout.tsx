@@ -3,11 +3,15 @@ import "./globals.css";
 import { Inter } from "next/font/google";
 import { cn } from "@/lib/utils";
 
-const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
+const inter = Inter({
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
+  variable: "--font-inter",
+});
 
 export const metadata: Metadata = {
-  title: "llm-logger",
-  description: "LLM conversation logger",
+  title: "Prism",
+  description: "Multi-provider LLM chat and observability",
 };
 
 export default function RootLayout({
@@ -17,7 +21,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning className={cn("font-sans", inter.variable)}>
-      <body>{children}</body>
+      <body className={inter.variable}>{children}</body>
     </html>
   );
 }

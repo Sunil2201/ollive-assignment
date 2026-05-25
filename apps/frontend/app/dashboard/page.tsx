@@ -20,7 +20,7 @@ import {
 } from "recharts";
 
 import { getSessionId } from "@/lib/config";
-import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Calendar } from "@/components/ui/calendar";
@@ -78,11 +78,16 @@ function formatDate(d: Date): string {
  * local-time string.  We anchor to a fixed epoch date — we only need the
  * UTC→local offset, which is constant across a typical intra-day range.
  */
-function utcHourToLocal(hourStr: string): string {
-  const [h, m] = hourStr.split(":").map(Number);
-  const d = new Date();
-  d.setUTCHours(h, m ?? 0, 0, 0);
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+function utcHourToLocal(isoStr: string): string {
+  if (!isoStr) return "";
+  const d = isoStr.includes("T") ? new Date(isoStr) : (() => {
+    const [h, m] = isoStr.split(":").map(Number);
+    const date = new Date();
+    date.setUTCHours(h, m ?? 0, 0, 0);
+    return date;
+  })();
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" }) + ", " + 
+         d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
 function formatNumber(n: number): string {
@@ -201,6 +206,13 @@ export default function DashboardPage() {
     return { from, to };
   });
   const [calOpen, setCalOpen] = useState(false);
+  const [activePointer, setActivePointer] = useState<'from' | 'to'>('from');
+
+  useEffect(() => {
+    if (calOpen) {
+      setActivePointer('from');
+    }
+  }, [calOpen]);
 
   /* Data state */
   const [data, setData] = useState<MetricsData | null>(null);
@@ -323,19 +335,20 @@ export default function DashboardPage() {
         >
           <span
             style={{
-              fontSize: "14px",
-              fontWeight: 500,
+              fontSize: "15px",
+              fontWeight: 600,
               color: "var(--color-text-primary)",
               letterSpacing: "-0.01em",
             }}
           >
-            llm-logger
+            Prism
           </span>
 
           <Link
             href="/"
             style={{
               fontSize: "13px",
+              fontWeight: 500,
               color: "var(--color-accent)",
               textDecoration: "none",
             }}
@@ -351,7 +364,7 @@ export default function DashboardPage() {
           style={{
             flex: 1,
             overflowY: "auto",
-            padding: "24px 32px",
+            padding: "32px 32px",
           }}
         >
           <div style={{ maxWidth: "1200px", margin: "0 auto" }}>
@@ -384,8 +397,8 @@ export default function DashboardPage() {
             >
               <h1
                 style={{
-                  fontSize: "18px",
-                  fontWeight: 500,
+                  fontSize: "20px",
+                  fontWeight: 600,
                   color: "var(--color-text-primary)",
                   margin: 0,
                 }}
@@ -396,23 +409,21 @@ export default function DashboardPage() {
               {/* Date range picker */}
               <Popover open={calOpen} onOpenChange={setCalOpen}>
                 <PopoverTrigger
-                  render={
-                    <Button
-                      variant="outline"
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "7px",
-                        fontSize: "13px",
-                        height: "34px",
-                        paddingLeft: "12px",
-                        paddingRight: "12px",
-                        borderColor: "var(--color-border)",
-                        color: "var(--color-text-primary)",
-                        background: "#FFFFFF",
-                      }}
-                    />
-                  }
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "7px",
+                    fontSize: "13px",
+                    fontWeight: 500,
+                    height: "38px",
+                    paddingLeft: "16px",
+                    paddingRight: "16px",
+                    border: "1px solid #E2E8F0",
+                    borderRadius: "8px",
+                    color: "#0F172A",
+                    background: "#FFFFFF",
+                    cursor: "pointer",
+                  }}
                 >
                   <CalendarIcon size={14} style={{ color: "var(--color-text-secondary)" }} />
                   {rangeLabel}
@@ -423,17 +434,46 @@ export default function DashboardPage() {
                   align="end"
                 >
                   <Calendar
-                    mode="range"
-                    selected={range}
-                    onSelect={(r) => {
-                      if (r) {
-                        setRange(r);
-                        if (r.from && r.to) setCalOpen(false);
-                      }
-                    }}
-                    numberOfMonths={2}
-                  />
-                </PopoverContent>
+                      mode="range"
+                      selected={range}
+                      modifiers={{
+                        activeStart: range.from && activePointer === 'from' ? range.from : undefined,
+                        activeEnd: range.to && activePointer === 'to' ? range.to : undefined,
+                      }}
+                      onSelect={(_, clickedDay) => {
+                        const isStart = range.from && clickedDay.toDateString() === range.from.toDateString();
+                        const isEnd = range.to && clickedDay.toDateString() === range.to.toDateString();
+                        
+                        if (isStart) {
+                          setActivePointer('from');
+                          return;
+                        }
+                        if (isEnd) {
+                          setActivePointer('to');
+                          return;
+                        }
+
+                        if (activePointer === 'from') {
+                          if (range.to && clickedDay > range.to) {
+                            setRange({ from: clickedDay, to: undefined });
+                          } else {
+                            setRange({ ...range, from: clickedDay });
+                          }
+                          setActivePointer('to');
+                        } else {
+                          if (range.from && clickedDay < range.from) {
+                            setRange({ from: clickedDay, to: range.from });
+                            setCalOpen(false);
+                          } else {
+                            setRange({ ...range, to: clickedDay });
+                            if (range.from) setCalOpen(false);
+                          }
+                        }
+                      }}
+                      numberOfMonths={2}
+                      showOutsideDays={false}
+                    />
+                  </PopoverContent>
               </Popover>
             </div>
 
@@ -442,7 +482,7 @@ export default function DashboardPage() {
               style={{
                 display: "grid",
                 gridTemplateColumns: "repeat(4, 1fr)",
-                gap: "16px",
+                gap: "20px",
                 marginBottom: "20px",
               }}
             >
@@ -453,17 +493,17 @@ export default function DashboardPage() {
                     background: cfg.bg,
                     border: `1px solid ${cfg.border}`,
                     borderRadius: "var(--radius-lg)",
-                    boxShadow: "none",
+                    boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
                     padding: 0,
                   }}
                   className="ring-0"
                 >
-                  <CardContent style={{ padding: "16px 20px" }}>
+                  <CardContent style={{ padding: "20px 24px" }}>
                     <div
                       style={{
-                        fontSize: "12px",
-                        fontWeight: 500,
-                        letterSpacing: "0.04em",
+                        fontSize: "11px",
+                        fontWeight: 600,
+                        letterSpacing: "0.06em",
                         textTransform: "uppercase",
                         color: cfg.textColor,
                         marginBottom: "8px",
@@ -477,10 +517,10 @@ export default function DashboardPage() {
                     ) : (
                       <div
                         style={{
-                          fontSize: "28px",
-                          fontWeight: 500,
+                          fontSize: "26px",
+                          fontWeight: 600,
                           color: cfg.textColor,
-                          lineHeight: 1,
+                          lineHeight: 1.2,
                           marginBottom: "8px",
                         }}
                       >
@@ -491,11 +531,12 @@ export default function DashboardPage() {
                     <div
                       style={{
                         fontSize: "12px",
-                        color: cfg.trendUp ? "#15803D" : "#DC2626",
+                        fontWeight: 400,
+                        color: "#64748B",
                         display: "flex",
                         alignItems: "center",
                         gap: "3px",
-                        marginTop: "6px",
+                        marginTop: "4px",
                       }}
                     >
                       <span>{cfg.trendUp ? "↑" : "↓"}</span>
@@ -512,7 +553,7 @@ export default function DashboardPage() {
                 background: "#FFFFFF",
                 border: "1px solid var(--color-border)",
                 borderRadius: "var(--radius-lg)",
-                boxShadow: "none",
+                boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
                 marginBottom: "20px",
                 padding: 0,
               }}
@@ -522,10 +563,10 @@ export default function DashboardPage() {
                 <div style={{ marginBottom: "16px" }}>
                   <div
                     style={{
-                      fontSize: "14px",
-                      fontWeight: 500,
-                      color: "var(--color-text-primary)",
-                      marginBottom: "3px",
+                      fontSize: "15px",
+                      fontWeight: 600,
+                      color: "#0F172A",
+                      marginBottom: "4px",
                     }}
                   >
                     Latency over time
@@ -533,7 +574,8 @@ export default function DashboardPage() {
                   <div
                     style={{
                       fontSize: "12px",
-                      color: "var(--color-text-secondary)",
+                      color: "#64748B",
+                      marginBottom: "16px",
                     }}
                   >
                     p50 / p95 / p99 in milliseconds
@@ -620,7 +662,7 @@ export default function DashboardPage() {
                   background: "#FFFFFF",
                   border: "1px solid var(--color-border)",
                   borderRadius: "var(--radius-lg)",
-                  boxShadow: "none",
+                  boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
                   padding: 0,
                 }}
                 className="ring-0"
@@ -628,9 +670,9 @@ export default function DashboardPage() {
                 <CardContent style={{ padding: "20px 24px" }}>
                   <div
                     style={{
-                      fontSize: "14px",
-                      fontWeight: 500,
-                      color: "var(--color-text-primary)",
+                      fontSize: "15px",
+                      fontWeight: 600,
+                      color: "#0F172A",
                       marginBottom: "16px",
                     }}
                   >
@@ -683,7 +725,7 @@ export default function DashboardPage() {
                   background: "#FFFFFF",
                   border: "1px solid var(--color-border)",
                   borderRadius: "var(--radius-lg)",
-                  boxShadow: "none",
+                  boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
                   padding: 0,
                 }}
                 className="ring-0"
@@ -691,9 +733,9 @@ export default function DashboardPage() {
                 <CardContent style={{ padding: "20px 24px" }}>
                   <div
                     style={{
-                      fontSize: "14px",
-                      fontWeight: 500,
-                      color: "var(--color-text-primary)",
+                      fontSize: "15px",
+                      fontWeight: 600,
+                      color: "#0F172A",
                       marginBottom: "16px",
                     }}
                   >
@@ -716,11 +758,11 @@ export default function DashboardPage() {
                               style={{
                                 textAlign: "left",
                                 fontSize: "11px",
-                                fontWeight: 500,
+                                fontWeight: 600,
                                 textTransform: "uppercase",
-                                letterSpacing: "0.04em",
-                                color: "var(--color-text-secondary)",
-                                padding: "0 8px 10px",
+                                letterSpacing: "0.06em",
+                                color: "#64748B",
+                                padding: "10px 12px",
                                 borderBottom: "1px solid var(--color-border)",
                               }}
                             >
@@ -792,7 +834,7 @@ export default function DashboardPage() {
                     background: "#FFFFFF",
                     border: "1px solid var(--color-border)",
                     borderRadius: "var(--radius-lg)",
-                    boxShadow: "none",
+                    boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
                     padding: 0,
                   }}
                   className="ring-0"
@@ -807,11 +849,11 @@ export default function DashboardPage() {
                               style={{
                                 textAlign: "left",
                                 fontSize: "11px",
-                                fontWeight: 500,
+                                fontWeight: 600,
                                 textTransform: "uppercase",
-                                letterSpacing: "0.04em",
-                                color: "var(--color-text-secondary)",
-                                padding: "12px 14px 10px",
+                                letterSpacing: "0.06em",
+                                color: "#64748B",
+                                padding: "10px 12px",
                                 borderBottom: "1px solid var(--color-border)",
                                 whiteSpace: "nowrap",
                               }}
@@ -909,7 +951,7 @@ function ConversationRow({
         background: hovered ? "#F8F9FC" : "transparent",
         cursor: "pointer",
         transition: "background 100ms ease",
-        borderBottom: "1px solid var(--color-border)",
+        borderBottom: "1px solid #F1F3F9",
       }}
     >
       {/* Title */}
@@ -938,6 +980,8 @@ function ConversationRow({
               fontWeight: 500,
               fontSize: "11px",
               textTransform: "capitalize",
+              borderRadius: "4px",
+              padding: "2px 8px",
             }}
           >
             {conv.primary_provider}
@@ -1071,7 +1115,7 @@ function ConversationDetailPanel({
         background: "#FFFFFF",
         border: "1px solid var(--color-border)",
         borderRadius: "var(--radius-lg)",
-        boxShadow: "none",
+        boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
         padding: 0,
         marginBottom: "0",
       }}
@@ -1199,11 +1243,11 @@ function ConversationDetailPanel({
                     style={{
                       textAlign: "left",
                       fontSize: "11px",
-                      fontWeight: 500,
+                      fontWeight: 600,
                       textTransform: "uppercase",
-                      letterSpacing: "0.04em",
-                      color: "var(--color-text-secondary)",
-                      padding: "0 10px 8px",
+                      letterSpacing: "0.06em",
+                      color: "#64748B",
+                      padding: "10px 12px",
                       borderBottom: "1px solid var(--color-border)",
                       whiteSpace: "nowrap",
                     }}
@@ -1255,7 +1299,7 @@ function TurnRow({
       style={{
         background: hovered ? "#F8F9FC" : isError ? "#FFF8F8" : "transparent",
         transition: "background 100ms ease",
-        borderBottom: "1px solid var(--color-border)",
+        borderBottom: "1px solid #F1F3F9",
       }}
     >
       {/* Turn # */}
@@ -1272,6 +1316,8 @@ function TurnRow({
             fontWeight: 500,
             fontSize: "11px",
             textTransform: "capitalize",
+            borderRadius: "4px",
+            padding: "2px 8px",
           }}
         >
           {entry.provider}
@@ -1353,9 +1399,10 @@ function ErrorRow({ row }: { row: ProviderError }) {
       style={{
         background: hovered ? "#F8F9FC" : "transparent",
         transition: "background 100ms ease",
+        borderBottom: "1px solid #F1F3F9",
       }}
     >
-      <td style={{ padding: "10px 8px" }}>
+      <td style={{ padding: "12px 12px" }}>
         <Badge
           style={{
             ...getProviderBadgeStyle(row.provider),
@@ -1363,6 +1410,8 @@ function ErrorRow({ row }: { row: ProviderError }) {
             fontWeight: 500,
             fontSize: "11px",
             textTransform: "capitalize",
+            borderRadius: "4px",
+            padding: "2px 8px",
           }}
         >
           {row.provider}
@@ -1370,7 +1419,7 @@ function ErrorRow({ row }: { row: ProviderError }) {
       </td>
       <td
         style={{
-          padding: "10px 8px",
+          padding: "12px 12px",
           fontSize: "13px",
           color: "var(--color-text-primary)",
         }}
@@ -1379,14 +1428,14 @@ function ErrorRow({ row }: { row: ProviderError }) {
       </td>
       <td
         style={{
-          padding: "10px 8px",
+          padding: "12px 12px",
           fontSize: "13px",
           color: "var(--color-text-primary)",
         }}
       >
         {row.errors}
       </td>
-      <td style={{ padding: "10px 8px" }}>
+      <td style={{ padding: "12px 12px" }}>
         <span
           style={{
             fontSize: "13px",

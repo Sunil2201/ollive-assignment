@@ -5,7 +5,7 @@
 :root {
   /* Page & surface */
   --color-page-bg:        #F8F9FC;
-  --color-sidebar-bg:     #F1F3F9;
+  --color-sidebar-bg:     #FFFFFF;
   --color-card-bg:        #FFFFFF;
   --color-border:         #E2E8F0;
 
@@ -19,6 +19,7 @@
   --color-text-primary:   #0F172A;
   --color-text-secondary: #64748B;
   --color-text-hint:      #94A3B8;
+  --color-text-sidebar:   #374151;
 
   /* Provider badges */
   --color-anthropic-bg:   #EEF2FF;
@@ -42,6 +43,6 @@
 
   /* Layout geometry */
   --nav-height:    52px;
-  --sidebar-width: 260px;
+  --sidebar-width: 300px;
   --icon-size:     28px;
 }

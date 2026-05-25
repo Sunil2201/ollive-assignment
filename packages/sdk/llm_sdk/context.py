@@ -20,7 +20,10 @@ def count_tokens(messages: list[dict], provider: str, model: str) -> int:
 
             try:
                 enc = tiktoken.encoding_for_model(model)
-            except KeyError:
+            except Exception:
+                # tiktoken may not recognise newer model names (e.g. gpt-4.1-mini)
+                # and can raise KeyError or RecursionError during registry lookup.
+                # cl100k_base is the correct encoding for all GPT-4 family models.
                 enc = tiktoken.get_encoding("cl100k_base")
 
             total = 0

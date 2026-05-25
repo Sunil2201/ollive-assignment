@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   cancelConversation,
+  deleteConversation,
   getConversation,
   listConversations,
   resumeConversation,
@@ -16,6 +17,14 @@ import type { Conversation, Message } from "@/types";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { MarkdownRenderer } from "@/components/markdown-renderer";
+import {
+  Dialog,
+  DialogClose,
+  DialogDescription,
+  DialogPopup,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Tooltip,
   TooltipContent,
@@ -148,6 +157,226 @@ function ChatBubbleIcon() {
 }
 
 /* ══════════════════════════════════════════════════════════════
+   Input Bar — shared between empty-state (top) and message view (bottom)
+══════════════════════════════════════════════════════════════ */
+interface InputBarContentsProps {
+  activeConv: Conversation | null;
+  cancelledError: string | null;
+  setCancelledError: (v: string | null) => void;
+  input: string;
+  setInput: (v: string) => void;
+  handleKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+  isDisabled: boolean;
+  streaming: boolean;
+  handleStop: () => void;
+  handleSend: () => void;
+  selectedProvider: string;
+  setSelectedProvider: (v: string) => void;
+}
+
+/* Provider badge for sidebar conversation items */
+function ProviderDot({ provider }: { provider?: string | null }) {
+  if (!provider) return null;
+  const map: Record<string, { bg: string; text: string; label: string }> = {
+    anthropic: { bg: "var(--color-anthropic-bg)", text: "var(--color-anthropic-text)", label: "Anthropic" },
+    openai:    { bg: "var(--color-openai-bg)",    text: "var(--color-openai-text)",    label: "OpenAI"    },
+    gemini:    { bg: "var(--color-gemini-bg)",    text: "var(--color-gemini-text)",    label: "Gemini"    },
+  };
+  const style = map[provider.toLowerCase()] ?? {
+    bg: "var(--color-accent-subtle)",
+    text: "var(--color-accent-text)",
+    label: provider,
+  };
+  return (
+    <span
+      style={{
+        display: "inline-block",
+        alignSelf: "flex-start",
+        fontSize: "10px",
+        fontWeight: 500,
+        lineHeight: 1,
+        padding: "2px 6px",
+        borderRadius: "var(--radius-pill)",
+        background: style.bg,
+        color: style.text,
+        flexShrink: 0,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {style.label}
+    </span>
+  );
+}
+
+function InputBarContents({
+  activeConv,
+  cancelledError,
+  setCancelledError,
+  input,
+  setInput,
+  handleKeyDown,
+  isDisabled,
+  streaming,
+  handleStop,
+  handleSend,
+  selectedProvider,
+  setSelectedProvider,
+}: InputBarContentsProps) {
+  return (
+    <>
+      {/* Cancelled conversation banner */}
+      {activeConv?.status === "cancelled" && !streaming && (
+        <div
+          style={{
+            marginBottom: "8px",
+            padding: "8px 12px",
+            borderRadius: "var(--radius-md)",
+            background: "var(--color-cancelled-bg)",
+            color: "var(--color-cancelled-text)",
+            fontSize: "12px",
+            fontWeight: 500,
+          }}
+        >
+          Conversation cancelled. Type &ldquo;resume&rdquo; to continue.
+        </div>
+      )}
+      {/* Inline error for blocked sends on cancelled conversations */}
+      {cancelledError && (
+        <div
+          style={{
+            marginBottom: "8px",
+            padding: "8px 12px",
+            borderRadius: "var(--radius-md)",
+            background: "var(--color-cancelled-bg)",
+            color: "var(--color-cancelled-text)",
+            fontSize: "12px",
+            fontWeight: 500,
+          }}
+        >
+          {cancelledError}
+        </div>
+      )}
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          background: "#FFFFFF",
+          border: "1px solid #E2E8F0",
+          borderRadius: "var(--radius-lg)",
+          padding: "14px 14px 10px 16px",
+          boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
+          transition: "opacity 200ms ease",
+          gap: "10px",
+        }}
+      >
+        {/* Top row — textarea */}
+        <textarea
+          className="chat-input"
+          value={input}
+          onChange={(e) => {
+            setInput(e.target.value);
+            if (cancelledError) setCancelledError(null);
+          }}
+          onKeyDown={handleKeyDown}
+          disabled={isDisabled}
+          placeholder={
+            activeConv?.status === "cancelled"
+              ? "Type 'resume' to continue..."
+              : "Ask anything..."
+          }
+          rows={2}
+          style={{
+            width: "100%",
+            border: "none",
+            outline: "none",
+            background: "transparent",
+            resize: "none",
+            fontSize: "14px",
+            color: "var(--color-text-primary)",
+            lineHeight: 1.6,
+            maxHeight: "160px",
+            overflowY: "auto",
+            padding: 0,
+            fontFamily: "inherit",
+          }}
+        />
+
+        {/* Bottom row — provider select + send/stop */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
+          {/* Provider Select */}
+          <Select
+            value={selectedProvider}
+            onValueChange={(v) => { if (v !== null) setSelectedProvider(v); }}
+            disabled={isDisabled}
+          >
+            <SelectTrigger className="model-select-trigger">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="model-select-content">
+              {PROVIDERS.map((p) => (
+                <SelectItem key={p.value} value={p.value} className="model-select-item" label={p.label} data-value={p.value}>
+                  <span>{p.label}</span>
+                  <span style={{ fontSize: "11px", fontWeight: 400, opacity: 0.55, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}>
+                    {p.model}
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {/* Send / Stop — only rendered when there's input or actively streaming */}
+          {(streaming || input.trim()) && (
+            <button
+              onClick={streaming ? handleStop : handleSend}
+              disabled={!streaming && isDisabled}
+              style={{
+                background: streaming ? "#dc2626" : "var(--color-accent)",
+                color: "#FFFFFF",
+                border: "none",
+                borderRadius: "var(--radius-md)",
+                padding: "0 16px",
+                fontSize: "13px",
+                fontWeight: 500,
+                cursor: !streaming && isDisabled ? "not-allowed" : "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "4px",
+                transition: "all 120ms ease",
+                flexShrink: 0,
+                minWidth: "52px",
+                height: "34px",
+                opacity: !streaming && isDisabled ? 0.6 : 1,
+              }}
+              onMouseEnter={(e) => {
+                if (!isDisabled || streaming) {
+                  e.currentTarget.style.background = streaming
+                    ? "#b91c1c"
+                    : "var(--color-accent-hover)";
+                }
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = streaming
+                  ? "#dc2626"
+                  : "var(--color-accent)";
+              }}
+            >
+              {streaming ? "Stop" : "Send"}
+            </button>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════
    Main Component
 ══════════════════════════════════════════════════════════════ */
 export default function ChatPage() {
@@ -159,11 +388,20 @@ export default function ChatPage() {
   const [streaming, setStreaming] = useState(false);
   const [streamingContent, setStreamingContent] = useState("");
   const [sidebarError, setSidebarError] = useState<string | null>(null);
-  const [selectedProvider, setSelectedProvider] = useState("anthropic");
+  const [selectedProvider, setSelectedProvider] = useState("Anthropic");
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [recentsOpen, setRecentsOpen] = useState(true);
+  const [hoveredConvId, setHoveredConvId] = useState<string | null>(null);
+  const [dotHoveredConvId, setDotHoveredConvId] = useState<string | null>(null);
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [cancelledError, setCancelledError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   // Ref mirror of streamingContent — handleStop reads this instead of the state
   // variable to avoid stale-closure issues when chunks arrive faster than renders.
   const streamingContentRef = useRef("");
@@ -172,11 +410,26 @@ export default function ChatPage() {
   const activeConv = conversations.find((c) => c.id === activeConvId) ?? null;
   const providerLabel =
     PROVIDERS.find((p) => p.value === selectedProvider)?.label ?? selectedProvider;
+  const filteredConversations = conversations.filter((c) =>
+    (c.title ?? "Untitled").toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   /* Load conversations on mount */
   useEffect(() => {
     refreshConversations();
   }, []);
+
+  /* Close context menu on outside click */
+  useEffect(() => {
+    if (!menuOpenId) return;
+    function onMouseDown(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpenId(null);
+      }
+    }
+    document.addEventListener("mousedown", onMouseDown);
+    return () => document.removeEventListener("mousedown", onMouseDown);
+  }, [menuOpenId]);
 
   /* Auto-scroll to bottom */
   useEffect(() => {
@@ -190,6 +443,22 @@ export default function ChatPage() {
       setSidebarError(null);
     } catch {
       setSidebarError("Failed to load conversations.");
+    }
+  }
+
+  async function handleDeleteConversation(id: string) {
+    setIsDeleting(true);
+    try {
+      await deleteConversation(id);
+      setConfirmDeleteId(null);
+      setMenuOpenId(null);
+      if (activeConvId === id) {
+        setActiveConvId(null);
+        setMessages([]);
+      }
+      await refreshConversations();
+    } catch { /* ignore */ } finally {
+      setIsDeleting(false);
     }
   }
 
@@ -320,7 +589,7 @@ export default function ChatPage() {
       {
         messages: nextMessages.map((m) => ({ role: m.role, content: m.content })),
         conversationId: convId,
-        provider: selectedProvider,
+        provider: selectedProvider.toLowerCase(),
         isResume,
       },
       (chunk) => {
@@ -390,290 +659,615 @@ export default function ChatPage() {
   }
 
   const isDisabled = loading || streaming;
+  const hasMessages = messages.length > 0 || !!streamingContent;
 
   /* ══════════════════════════════════════════════════════════════
      Render
   ══════════════════════════════════════════════════════════════ */
   return (
     <TooltipProvider delay={300}>
-      {/* Root: full viewport, no scroll */}
+      {/* Root: full viewport, sidebar + main side-by-side */}
       <div
         style={{
           display: "flex",
-          flexDirection: "column",
+          flexDirection: "row",
           height: "100vh",
           overflow: "hidden",
           background: "var(--color-page-bg)",
         }}
       >
         {/* ══════════════════════════════════════
-            NAV BAR
+            SIDEBAR (full height)
         ══════════════════════════════════════ */}
-        <nav
-          style={{
-            height: "var(--nav-height)",
-            minHeight: "var(--nav-height)",
-            background: "#FFFFFF",
-            borderBottom: "0.5px solid var(--color-border)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            padding: "0 24px",
-            flexShrink: 0,
-          }}
-        >
-          {/* Left: Toggle button + brand name */}
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <button
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-              style={{
-                background: "none",
-                border: "none",
-                cursor: "pointer",
-                padding: "6px",
-                borderRadius: "var(--radius-md)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                color: "var(--color-text-secondary)",
-                transition: "background 120ms ease",
-              }}
-              onMouseEnter={(e) =>
-                (e.currentTarget.style.background = "var(--color-sidebar-bg)")
-              }
-              onMouseLeave={(e) =>
-                (e.currentTarget.style.background = "none")
-              }
-              aria-label="Toggle sidebar"
-            >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                <line x1="9" y1="3" x2="9" y2="21" />
-              </svg>
-            </button>
-            <span
-              style={{
-                fontSize: "14px",
-                fontWeight: 500,
-                color: "var(--color-text-primary)",
-                letterSpacing: "-0.01em",
-              }}
-            >
-              llm-logger
-            </span>
-          </div>
-
-          {/* Right: Dashboard link + active conversation pill */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "12px",
-            }}
-          >
-            <Link
-              href="/dashboard"
-              style={{
-                fontSize: "13px",
-                color: "var(--color-accent)",
-                textDecoration: "none",
-              }}
-            >
-              Dashboard
-            </Link>
-
-            {activeConv && (
-              <span
-                style={{
-                  fontSize: "13px",
-                  color: "var(--color-text-secondary)",
-                  background: "var(--color-sidebar-bg)",
-                  borderRadius: "var(--radius-pill)",
-                  padding: "2px 10px",
-                  maxWidth: "200px",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {activeConv.title || "Untitled"}
-              </span>
-            )}
-          </div>
-        </nav>
-
-        {/* ══════════════════════════════════════
-            BODY (sidebar + chat)
-        ══════════════════════════════════════ */}
-        <div
-          style={{
-            display: "flex",
-            flex: 1,
-            overflow: "hidden",
-            minHeight: 0,
-          }}
-        >
-          {/* ── SIDEBAR ── */}
+        {sidebarOpen && (
           <aside
             style={{
-              width: sidebarOpen ? "var(--sidebar-width)" : "0px",
-              minWidth: sidebarOpen ? "var(--sidebar-width)" : "0px",
-              background: "var(--color-sidebar-bg)",
-              borderRight: sidebarOpen ? "0.5px solid var(--color-border)" : "none",
-              display: sidebarOpen ? "flex" : "none",
+              width: "var(--sidebar-width)",
+              minWidth: "var(--sidebar-width)",
+              display: "flex",
               flexDirection: "column",
-              alignItems: "stretch",
-              padding: "12px",
-              gap: "8px",
-              overflowY: "auto",
-              overflowX: "hidden",
+              background: "var(--color-sidebar-bg)",
+              borderRight: "1px solid var(--color-border)",
               flexShrink: 0,
+              overflow: "hidden",
             }}
           >
-            {/* New chat button */}
-            <button
-              onClick={handleNewChat}
-              style={{
-                width: "100%",
-                height: "36px",
-                background: "var(--color-accent)",
-                border: "none",
-                borderRadius: "var(--radius-md)",
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: "8px",
-                color: "#FFFFFF",
-                fontSize: "13px",
-                fontWeight: 500,
-                flexShrink: 0,
-                transition: "background 120ms ease",
-              }}
-              onMouseEnter={(e) =>
-                (e.currentTarget.style.background = "var(--color-accent-hover)")
-              }
-              onMouseLeave={(e) =>
-                (e.currentTarget.style.background = "var(--color-accent)")
-              }
-            >
-              <PlusIcon />
-              <span>New chat</span>
-            </button>
-
-            {/* Separator below new-chat */}
-            <Separator
-              style={{
-                margin: "4px 0",
-                background: "var(--color-border)",
-              }}
-            />
-
-            {/* Sidebar load error */}
-            {sidebarError && (
-              <div
-                style={{
-                  padding: "6px 12px",
-                  borderRadius: "var(--radius-md)",
-                  background: "var(--color-cancelled-bg)",
-                  color: "var(--color-cancelled-text)",
-                  fontSize: "12px",
-                  fontWeight: 500,
-                }}
-              >
-                {sidebarError}
-              </div>
-            )}
-
-            {/* Conversation list */}
+            {/* ── Sidebar Header ── */}
             <div
               style={{
+                height: "var(--nav-height)",
+                minHeight: "var(--nav-height)",
                 display: "flex",
-                flexDirection: "column",
-                gap: "4px",
-                flex: 1,
-                overflowY: "auto",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "0 8px 0 16px",
+                borderBottom: "1px solid var(--color-border)",
+                flexShrink: 0,
               }}
             >
-              {conversations.map((conv) => {
-                const isActive = conv.id === activeConvId;
-                return (
+              <span
+                style={{
+                  fontSize: "15px",
+                  fontWeight: 600,
+                  color: "var(--color-text-primary)",
+                  letterSpacing: "-0.01em",
+                }}
+              >
+                Prism
+              </span>
+              <Tooltip>
+                <TooltipTrigger render={<span />}>
                   <button
-                    key={conv.id}
-                    onClick={() => handleSelectConversation(conv.id)}
+                    onClick={() => setSidebarOpen(false)}
                     style={{
-                      width: "100%",
-                      padding: "8px 10px",
-                      borderRadius: "var(--radius-md)",
-                      border: isActive
-                        ? "0.5px solid var(--color-accent)"
-                        : "none",
-                      background: isActive
-                        ? "var(--color-accent-subtle)"
-                        : "transparent",
-                      color: isActive
-                        ? "var(--color-accent-text)"
-                        : "var(--color-text-secondary)",
+                      background: "none",
+                      border: "none",
                       cursor: "pointer",
+                      padding: "6px",
+                      borderRadius: "var(--radius-md)",
                       display: "flex",
                       alignItems: "center",
-                      gap: "8px",
-                      textAlign: "left",
-                      fontSize: "13px",
-                      fontWeight: 500,
-                      transition: "all 120ms ease",
-                      overflow: "hidden",
+                      justifyContent: "center",
+                      color: "var(--color-text-secondary)",
+                      transition: "background 120ms ease",
                     }}
-                    onMouseEnter={(e) => {
-                      if (!isActive) {
-                        e.currentTarget.style.background = "rgba(15, 23, 42, 0.05)";
-                        e.currentTarget.style.color = "var(--color-text-primary)";
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!isActive) {
-                        e.currentTarget.style.background = "transparent";
-                        e.currentTarget.style.color = "var(--color-text-secondary)";
-                      }
-                    }}
+                    onMouseEnter={(e) =>
+                      (e.currentTarget.style.background = "rgba(15,23,42,0.06)")
+                    }
+                    onMouseLeave={(e) =>
+                      (e.currentTarget.style.background = "none")
+                    }
+                    aria-label="Close sidebar"
                   >
                     <svg
-                      width="14"
-                      height="14"
+                      width="16"
+                      height="16"
                       viewBox="0 0 24 24"
                       fill="none"
                       stroke="currentColor"
                       strokeWidth="2"
                       strokeLinecap="round"
                       strokeLinejoin="round"
-                      style={{ flexShrink: 0, opacity: 0.7 }}
                     >
-                      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                      <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                      <line x1="9" y1="3" x2="9" y2="21" />
                     </svg>
-                    <span
-                      style={{
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                        flex: 1,
-                      }}
-                    >
-                      {conv.title || "Untitled"}
-                    </span>
                   </button>
-                );
-              })}
+                </TooltipTrigger>
+                <TooltipContent side="right">Close sidebar</TooltipContent>
+              </Tooltip>
+            </div>
+
+            {/* ── Sidebar Body ── */}
+            <div
+              style={{
+                flex: 1,
+                display: "flex",
+                flexDirection: "column",
+                padding: "12px",
+                gap: "8px",
+                overflowY: "auto",
+                overflowX: "hidden",
+              }}
+            >
+              {/* New chat — plain icon+text row */}
+              <button
+                onClick={handleNewChat}
+                style={{
+                  width: "100%",
+                  height: "36px",
+                  background: "none",
+                  border: "none",
+                  borderRadius: "var(--radius-md)",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "10px",
+                  padding: "0 10px",
+                  color: "var(--color-text-primary)",
+                  fontSize: "14px",
+                  fontWeight: 400,
+                  flexShrink: 0,
+                  transition: "background 120ms ease",
+                }}
+                onMouseEnter={(e) =>
+                  (e.currentTarget.style.background = "#E8EBF4")
+                }
+                onMouseLeave={(e) =>
+                  (e.currentTarget.style.background = "none")
+                }
+              >
+                {/* Circle-plus icon */}
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  style={{ flexShrink: 0, color: "var(--color-text-secondary)" }}
+                >
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M12 8v8M8 12h8" />
+                </svg>
+                <span>New chat</span>
+              </button>
+
+              {/* Search row — transforms into inline input when active */}
+              {searchOpen ? (
+                <div
+                  style={{
+                    width: "100%",
+                    height: "36px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "10px",
+                    padding: "0 10px",
+                    background: "rgba(255,255,255,0.7)",
+                    border: "1px solid var(--color-accent)",
+                    borderRadius: "var(--radius-md)",
+                    flexShrink: 0,
+                    boxSizing: "border-box",
+                  }}
+                >
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    style={{ flexShrink: 0, color: "var(--color-accent)" }}
+                  >
+                    <circle cx="11" cy="11" r="8" />
+                    <path d="M21 21l-4.35-4.35" />
+                  </svg>
+                  <input
+                    autoFocus
+                    type="text"
+                    placeholder="Search conversations..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") {
+                        setSearchOpen(false);
+                        setSearchQuery("");
+                      }
+                    }}
+                    style={{
+                      flex: 1,
+                      border: "none",
+                      outline: "none",
+                      background: "transparent",
+                      fontSize: "14px",
+                      color: "var(--color-text-primary)",
+                      fontFamily: "inherit",
+                    }}
+                  />
+                  {/* Clear / close */}
+                  <button
+                    onClick={() => { setSearchOpen(false); setSearchQuery(""); }}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      padding: "2px",
+                      display: "flex",
+                      alignItems: "center",
+                      color: "var(--color-text-hint)",
+                      borderRadius: "4px",
+                      flexShrink: 0,
+                    }}
+                    aria-label="Close search"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M18 6L6 18M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setSearchOpen(true)}
+                  style={{
+                    width: "100%",
+                    height: "36px",
+                    background: "none",
+                    border: "none",
+                    borderRadius: "var(--radius-md)",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "10px",
+                    padding: "0 10px",
+                    color: "var(--color-text-primary)",
+                    fontSize: "14px",
+                    fontWeight: 400,
+                    flexShrink: 0,
+                    transition: "background 120ms ease",
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = "#E8EBF4")}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = "none")}
+                >
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    style={{ flexShrink: 0, color: "var(--color-text-secondary)" }}
+                  >
+                    <circle cx="11" cy="11" r="8" />
+                    <path d="M21 21l-4.35-4.35" />
+                  </svg>
+                  <span>Search</span>
+                </button>
+              )}
+
+              {/* Sidebar load error */}
+              {sidebarError && (
+                <div
+                  style={{
+                    padding: "6px 12px",
+                    borderRadius: "var(--radius-md)",
+                    background: "var(--color-cancelled-bg)",
+                    color: "var(--color-cancelled-text)",
+                    fontSize: "12px",
+                    fontWeight: 500,
+                  }}
+                >
+                  {sidebarError}
+                </div>
+              )}
+
+              {/* Recents label — collapsible */}
+              {filteredConversations.length > 0 && (
+                <button
+                  onClick={() => setRecentsOpen((v) => !v)}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "5px",
+                    width: "100%",
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    padding: "4px 4px 0",
+                    marginTop: "4px",
+                    flexShrink: 0,
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: "11px",
+                      fontWeight: 600,
+                      letterSpacing: "0.06em",
+                      textTransform: "uppercase",
+                      color: "var(--color-text-hint)",
+                    }}
+                  >
+                    Recents
+                  </span>
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    style={{
+                      color: "var(--color-text-hint)",
+                      transform: recentsOpen ? "rotate(0deg)" : "rotate(-90deg)",
+                      transition: "transform 180ms ease",
+                    }}
+                  >
+                    <path d="M6 9l6 6 6-6" />
+                  </svg>
+                </button>
+              )}
+
+              {/* Conversation list */}
+              <div
+                style={{
+                  display: recentsOpen ? "flex" : "none",
+                  flexDirection: "column",
+                  gap: "2px",
+                  flex: 1,
+                  overflowY: "auto",
+                }}
+              >
+                {filteredConversations.map((conv) => {
+                  const isActive = conv.id === activeConvId;
+                  const isHovered = hoveredConvId === conv.id;
+                  const isMenuOpen = menuOpenId === conv.id;
+                  const isDotHovered = dotHoveredConvId === conv.id;
+                  return (
+                    <div
+                      key={conv.id}
+                      style={{ position: "relative" }}
+                    >
+                      {/* Row button */}
+                      <button
+                        onClick={() => handleSelectConversation(conv.id)}
+                        onMouseEnter={() => setHoveredConvId(conv.id)}
+                        onMouseLeave={() => {
+                          if (!isMenuOpen) setHoveredConvId(null);
+                        }}
+                        style={{
+                          width: "100%",
+                          padding: "8px 32px 8px 12px",
+                          borderRadius: "var(--radius-md)",
+                          border: "none",
+                          background: isActive
+                            ? "var(--color-accent-subtle)"
+                            : isHovered || isMenuOpen ? "#E8EBF4" : "transparent",
+                          color: isActive
+                            ? "var(--color-accent-text)"
+                            : isHovered || isMenuOpen ? "var(--color-text-primary)" : "var(--color-text-sidebar)",
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                          textAlign: "left",
+                          fontSize: "13px",
+                          fontWeight: isActive ? 500 : 400,
+                          transition: "all 120ms ease",
+                          overflow: "hidden",
+                        }}
+                      >
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          style={{ flexShrink: 0, opacity: 0.7, marginTop: "1px" }}
+                        >
+                          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                        </svg>
+                        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: "3px" }}>
+                          <span
+                            style={{
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {conv.title || "Untitled"}
+                          </span>
+                          <ProviderDot provider={conv.primary_provider} />
+                        </div>
+                      </button>
+
+                      {/* Three-dot button — visible on row hover, dot hover, or when menu is open */}
+                      {(isHovered || isDotHovered || isMenuOpen) && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setMenuOpenId(isMenuOpen ? null : conv.id);
+                          }}
+                          onMouseEnter={() => {
+                            setDotHoveredConvId(conv.id);
+                            setHoveredConvId(null);
+                          }}
+                          onMouseLeave={() => {
+                            setDotHoveredConvId(null);
+                          }}
+                          style={{
+                            position: "absolute",
+                            right: "4px",
+                            top: "50%",
+                            transform: "translateY(-50%)",
+                            background: isDotHovered || isMenuOpen ? "rgba(15,23,42,0.08)" : "none",
+                            border: "none",
+                            cursor: "pointer",
+                            padding: "6px 8px",
+                            borderRadius: "var(--radius-sm)",
+                            color: "var(--color-text-secondary)",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            lineHeight: 1,
+                          }}
+                          aria-label="More options"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                            <circle cx="12" cy="5" r="1.5" />
+                            <circle cx="12" cy="12" r="1.5" />
+                            <circle cx="12" cy="19" r="1.5" />
+                          </svg>
+                        </button>
+                      )}
+
+                      {/* Dropdown menu */}
+                      {isMenuOpen && (
+                        <div
+                          ref={menuRef}
+                          style={{
+                            position: "absolute",
+                            right: 0,
+                            top: "calc(100% + 4px)",
+                            zIndex: 50,
+                            background: "#FFFFFF",
+                            border: "1px solid var(--color-border)",
+                            borderRadius: "var(--radius-md)",
+                            boxShadow: "0 4px 16px rgba(0,0,0,0.10)",
+                            minWidth: "160px",
+                            padding: "4px",
+                          }}
+                        >
+                          <button
+                            onClick={() => { setConfirmDeleteId(conv.id); setMenuOpenId(null); }}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "8px",
+                              width: "100%",
+                              padding: "8px 10px",
+                              background: "none",
+                              border: "none",
+                              borderRadius: "6px",
+                              cursor: "pointer",
+                              fontSize: "13px",
+                              fontWeight: 400,
+                              color: "#DC2626",
+                              textAlign: "left",
+                            }}
+                            onMouseEnter={(e) =>
+                              (e.currentTarget.style.background = "#FEF2F2")
+                            }
+                            onMouseLeave={(e) =>
+                              (e.currentTarget.style.background = "none")
+                            }
+                          >
+                            <svg
+                              width="14"
+                              height="14"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <polyline points="3 6 5 6 21 6" />
+                              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                              <path d="M10 11v6M14 11v6" />
+                              <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+                            </svg>
+                            Delete
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </aside>
+        )}
+
+        {/* ══════════════════════════════════════
+            MAIN CONTENT COLUMN
+        ══════════════════════════════════════ */}
+        <div
+          style={{
+            flex: 1,
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden",
+            minWidth: 0,
+            background: "var(--color-page-bg)",
+          }}
+        >
+          {/* ── Top nav bar (same bg as page — no white stripe) ── */}
+          <nav
+            style={{
+              height: "var(--nav-height)",
+              minHeight: "var(--nav-height)",
+              background: "var(--color-page-bg)",
+              borderBottom: "1px solid var(--color-border)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "0 20px",
+              flexShrink: 0,
+            }}
+          >
+            {/* Left: toggle when sidebar is closed */}
+            <div>
+              {!sidebarOpen && (
+                <Tooltip>
+                  <TooltipTrigger render={<span />}>
+                    <button
+                      onClick={() => setSidebarOpen(true)}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        padding: "6px",
+                        borderRadius: "var(--radius-md)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        color: "var(--color-text-secondary)",
+                        transition: "background 120ms ease",
+                      }}
+                      onMouseEnter={(e) =>
+                        (e.currentTarget.style.background = "rgba(15,23,42,0.06)")
+                      }
+                      onMouseLeave={(e) =>
+                        (e.currentTarget.style.background = "none")
+                      }
+                      aria-label="Open sidebar"
+                    >
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                        <line x1="9" y1="3" x2="9" y2="21" />
+                      </svg>
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">Open sidebar</TooltipContent>
+                </Tooltip>
+              )}
+            </div>
+
+            {/* Right: Dashboard link + active conversation pill */}
+            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+              <Link
+                href="/dashboard"
+                style={{
+                  fontSize: "13px",
+                  fontWeight: 500,
+                  color: "var(--color-accent)",
+                  textDecoration: "none",
+                }}
+              >
+                Dashboard
+              </Link>
+
+            </div>
+          </nav>
 
           {/* ── CHAT AREA ── */}
           <div
@@ -689,11 +1283,9 @@ export default function ChatPage() {
             {activeConv && (
               <div
                 style={{
-                  background: "#FFFFFF",
-                  borderBottom: "0.5px solid var(--color-border)",
+                  background: "var(--color-page-bg)",
                   display: "flex",
                   alignItems: "center",
-                  justifyContent: "space-between",
                   padding: "12px 24px",
                   flexShrink: 0,
                 }}
@@ -713,42 +1305,6 @@ export default function ChatPage() {
                   {activeConv.title || "Untitled"}
                 </span>
 
-                {/* Right: badges + cancel */}
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "8px",
-                    flexShrink: 0,
-                  }}
-                >
-                  {/* Provider badge */}
-                  <span
-                    style={{
-                      fontSize: "11px",
-                      fontWeight: 500,
-                      padding: "2px 8px",
-                      borderRadius: "var(--radius-pill)",
-                      ...getProviderStyle(selectedProvider),
-                    }}
-                  >
-                    {providerLabel}
-                  </span>
-
-                  {/* Status badge */}
-                  <span
-                    style={{
-                      fontSize: "11px",
-                      fontWeight: 500,
-                      padding: "2px 8px",
-                      borderRadius: "var(--radius-pill)",
-                      ...getStatusStyle(activeConv.status),
-                    }}
-                  >
-                    {activeConv.status}
-                  </span>
-
-                </div>
               </div>
             )}
 
@@ -761,32 +1317,78 @@ export default function ChatPage() {
             >
               <div
                 style={{
-                  maxWidth: "560px",
+                  maxWidth: "780px",
                   margin: "0 auto",
-                  padding: "16px 20px",
+                  padding: "24px 20px",
                 }}
               >
                 {/* Empty state */}
-                {messages.length === 0 && !streamingContent && (
+                {!hasMessages && (
                   <div
                     style={{
                       display: "flex",
                       flexDirection: "column",
                       alignItems: "center",
                       justifyContent: "center",
-                      gap: "12px",
+                      gap: "16px",
                       minHeight: "300px",
+                      textAlign: "center",
+                      padding: "0 24px",
                     }}
                   >
-                    <ChatBubbleIcon />
-                    <span
+                    {/* Sparkle icon in accent pill */}
+                    <div
                       style={{
-                        fontSize: "14px",
-                        color: "var(--color-text-secondary)",
+                        width: "48px",
+                        height: "48px",
+                        borderRadius: "50%",
+                        background: "var(--color-accent-subtle)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        flexShrink: 0,
                       }}
                     >
-                      Select a conversation or start a new one
-                    </span>
+                      <svg
+                        width="24"
+                        height="24"
+                        viewBox="0 0 24 24"
+                        fill="currentColor"
+                        style={{ color: "var(--color-accent)" }}
+                      >
+                        <path d="M12 2 L13.5 10.5 L22 12 L13.5 13.5 L12 22 L10.5 13.5 L2 12 L10.5 10.5 Z" />
+                      </svg>
+                    </div>
+
+                    <p
+                      style={{
+                        fontSize: "22px",
+                        fontWeight: 600,
+                        color: "var(--color-text-primary)",
+                        margin: 0,
+                        lineHeight: 1.3,
+                      }}
+                    >
+                      How can I help you today?
+                    </p>
+
+                    {/* Input bar lives here when there are no messages */}
+                    <div style={{ width: "100%", maxWidth: "780px", marginTop: "8px" }}>
+                      <InputBarContents
+                        activeConv={activeConv}
+                        cancelledError={cancelledError}
+                        setCancelledError={setCancelledError}
+                        input={input}
+                        setInput={setInput}
+                        handleKeyDown={handleKeyDown}
+                        isDisabled={isDisabled}
+                        streaming={streaming}
+                        handleStop={handleStop}
+                        handleSend={handleSend}
+                        selectedProvider={selectedProvider}
+                        setSelectedProvider={setSelectedProvider}
+                      />
+                    </div>
                   </div>
                 )}
 
@@ -795,7 +1397,7 @@ export default function ChatPage() {
                   style={{
                     display: "flex",
                     flexDirection: "column",
-                    gap: "12px",
+                    gap: "16px",
                   }}
                 >
                   {messages.map((msg) => {
@@ -808,63 +1410,62 @@ export default function ChatPage() {
                           justifyContent: isUser ? "flex-end" : "flex-start",
                         }}
                       >
-                        <div
-                          style={{
-                            maxWidth: isUser ? "72%" : "76%",
-                            padding: "10px 14px",
-                            fontSize: "14px",
-                            lineHeight: 1.5,
-                            whiteSpace: "pre-wrap",
-                            wordBreak: "break-word",
-                            /* user:      top-right top-left bottom-right bottom-left */
-                            borderRadius: isUser
-                              ? "var(--radius-lg) var(--radius-lg) var(--radius-sm) var(--radius-lg)"
-                              : "var(--radius-lg) var(--radius-lg) var(--radius-lg) var(--radius-sm)",
-                            background: isUser
-                              ? "var(--color-accent)"
-                              : "var(--color-card-bg)",
-                            color: isUser ? "#FFFFFF" : "var(--color-text-primary)",
-                            border: isUser
-                              ? "none"
-                              : "0.5px solid var(--color-border)",
-                          }}
-                        >
-                          {msg.content}
-                        </div>
+                        {isUser ? (
+                          /* User bubble */
+                          <div
+                            style={{
+                              maxWidth: "72%",
+                              padding: "10px 14px",
+                              fontSize: "14px",
+                              lineHeight: 1.6,
+                              whiteSpace: "pre-wrap",
+                              wordBreak: "break-word",
+                              borderRadius:
+                                "var(--radius-lg) var(--radius-lg) var(--radius-sm) var(--radius-lg)",
+                              background: "var(--color-accent)",
+                              color: "#FFFFFF",
+                            }}
+                          >
+                            {msg.content}
+                          </div>
+                        ) : (
+                          /* Assistant response — no bubble */
+                          <div
+                            style={{
+                              width: "100%",
+                              fontSize: "14px",
+                              lineHeight: 1.6,
+                              color: "var(--color-text-primary)",
+                              wordBreak: "break-word",
+                            }}
+                          >
+                            <MarkdownRenderer content={msg.content} />
+                          </div>
+                        )}
                       </div>
                     );
                   })}
 
-                  {/* Streaming assistant bubble */}
+                  {/* Streaming assistant response — no bubble */}
                   {streaming && (
-                    <div style={{ display: "flex", justifyContent: "flex-start" }}>
-                      <div
-                        style={{
-                          maxWidth: "76%",
-                          padding: "10px 14px",
-                          fontSize: "14px",
-                          lineHeight: 1.5,
-                          whiteSpace: "pre-wrap",
-                          wordBreak: "break-word",
-                          borderRadius:
-                            "var(--radius-lg) var(--radius-lg) var(--radius-lg) var(--radius-sm)",
-                          background: "var(--color-card-bg)",
-                          color: "var(--color-text-primary)",
-                          border: "0.5px solid var(--color-border)",
-                        }}
-                      >
-                        {streamingContent || (
-                          <span
-                            style={{
-                              color: "var(--color-text-hint)",
-                              fontStyle: "italic",
-                            }}
-                          >
+                    <div
+                      style={{
+                        width: "100%",
+                        fontSize: "14px",
+                        lineHeight: 1.6,
+                        color: "var(--color-text-primary)",
+                        wordBreak: "break-word",
+                      }}
+                    >
+                      {streamingContent
+                        ? <MarkdownRenderer content={streamingContent} />
+                        : (
+                          <span style={{ color: "var(--color-text-hint)", fontStyle: "italic" }}>
                             Thinking
                           </span>
-                        )}
-                        <StreamingDots />
-                      </div>
+                        )
+                      }
+                      <StreamingDots />
                     </div>
                   )}
 
@@ -873,179 +1474,107 @@ export default function ChatPage() {
               </div>
             </ScrollArea>
 
-            {/* ── INPUT BAR ── */}
-            <div
-              style={{
-                padding: "12px 20px 16px",
-                background: "var(--color-page-bg)",
-                flexShrink: 0,
-              }}
-            >
+            {/* ── INPUT BAR (bottom) — only shown once there are messages ── */}
+            {hasMessages && (
               <div
                 style={{
-                  maxWidth: "560px",
-                  margin: "0 auto",
+                  padding: "12px 20px 16px",
+                  background: "var(--color-page-bg)",
+                  flexShrink: 0,
                 }}
               >
-                {/* Cancelled conversation banner */}
-                {activeConv?.status === "cancelled" && !streaming && (
-                  <div
-                    style={{
-                      marginBottom: "8px",
-                      padding: "8px 12px",
-                      borderRadius: "var(--radius-md)",
-                      background: "var(--color-cancelled-bg)",
-                      color: "var(--color-cancelled-text)",
-                      fontSize: "12px",
-                      fontWeight: 500,
-                    }}
-                  >
-                    Conversation cancelled. Type &ldquo;resume&rdquo; to continue.
-                  </div>
-                )}
-                {/* Inline error for blocked sends on cancelled conversations */}
-                {cancelledError && (
-                  <div
-                    style={{
-                      marginBottom: "8px",
-                      padding: "8px 12px",
-                      borderRadius: "var(--radius-md)",
-                      background: "var(--color-cancelled-bg)",
-                      color: "var(--color-cancelled-text)",
-                      fontSize: "12px",
-                      fontWeight: 500,
-                    }}
-                  >
-                    {cancelledError}
-                  </div>
-                )}
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    background: "#FFFFFF",
-                    border: "1px solid var(--color-border)",
-                    borderRadius: "var(--radius-pill)",
-                    padding: "8px 8px 8px 14px",
-                    gap: "0",
-                    transition: "opacity 200ms ease",
-                  }}
-                >
-                  {/* Provider Select */}
-                  <Select
-                    value={selectedProvider}
-                    onValueChange={(v) => { if (v !== null) setSelectedProvider(v); }}
-                    disabled={isDisabled}
-                  >
-                    <SelectTrigger className="model-select-trigger">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className="model-select-content">
-                      {PROVIDERS.map((p) => (
-                        <SelectItem key={p.value} value={p.value} className="model-select-item">
-                          {p.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-
-                  {/* Vertical separator */}
-                  <Separator
-                    orientation="vertical"
-                    style={{
-                      height: "18px",
-                      margin: "0 10px",
-                      background: "var(--color-border)",
-                      flexShrink: 0,
-                    }}
+                <div style={{ maxWidth: "780px", margin: "0 auto" }}>
+                  <InputBarContents
+                    activeConv={activeConv}
+                    cancelledError={cancelledError}
+                    setCancelledError={setCancelledError}
+                    input={input}
+                    setInput={setInput}
+                    handleKeyDown={handleKeyDown}
+                    isDisabled={isDisabled}
+                    streaming={streaming}
+                    handleStop={handleStop}
+                    handleSend={handleSend}
+                    selectedProvider={selectedProvider}
+                    setSelectedProvider={setSelectedProvider}
                   />
-
-                  {/* Text input */}
-                  <textarea
-                    className="chat-input"
-                    value={input}
-                    onChange={(e) => {
-                      setInput(e.target.value);
-                      if (cancelledError) setCancelledError(null);
-                    }}
-                    onKeyDown={handleKeyDown}
-                    disabled={isDisabled}
-                    placeholder={activeConv?.status === "cancelled" ? "Type 'resume' to continue..." : "Ask anything..."}
-                    rows={1}
-                    style={{
-                      flex: 1,
-                      border: "none",
-                      outline: "none",
-                      background: "transparent",
-                      resize: "none",
-                      fontSize: "13px",
-                      color: "var(--color-text-primary)",
-                      lineHeight: 1.5,
-                      maxHeight: "120px",
-                      overflowY: "auto",
-                      padding: "2px 0",
-                      fontFamily: "inherit",
-                    }}
-                  />
-
-                  {/* Send / Stop button */}
-                  <button
-                    onClick={streaming ? handleStop : handleSend}
-                    disabled={streaming ? false : (isDisabled || !input.trim())}
-                    style={{
-                      background: streaming
-                        ? "#dc2626"
-                        : isDisabled || !input.trim()
-                        ? "var(--color-accent-subtle)"
-                        : "var(--color-accent)",
-                      color: streaming
-                        ? "#FFFFFF"
-                        : isDisabled || !input.trim()
-                        ? "var(--color-accent-text)"
-                        : "#FFFFFF",
-                      border: "none",
-                      borderRadius: "var(--radius-md)",
-                      padding: "6px 14px",
-                      fontSize: "13px",
-                      fontWeight: 500,
-                      cursor: streaming
-                        ? "pointer"
-                        : isDisabled || !input.trim()
-                        ? "not-allowed"
-                        : "pointer",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: "4px",
-                      transition: "all 120ms ease",
-                      flexShrink: 0,
-                      minWidth: "52px",
-                      height: "28px",
-                      marginLeft: "8px",
-                    }}
-                    onMouseEnter={(e) => {
-                      if (streaming) {
-                        e.currentTarget.style.background = "#b91c1c";
-                      } else if (!isDisabled && input.trim()) {
-                        e.currentTarget.style.background = "var(--color-accent-hover)";
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (streaming) {
-                        e.currentTarget.style.background = "#dc2626";
-                      } else if (!isDisabled && input.trim()) {
-                        e.currentTarget.style.background = "var(--color-accent)";
-                      }
-                    }}
-                  >
-                    {streaming ? "Stop" : "Send"}
-                  </button>
                 </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
       </div>
+
+      {/* ══════════════════════════════════════
+          DELETE CONFIRMATION MODAL
+      ══════════════════════════════════════ */}
+      <Dialog
+        open={confirmDeleteId !== null}
+        onOpenChange={(open) => { if (!open) setConfirmDeleteId(null); }}
+      >
+        <DialogPopup>
+          <DialogTitle>Delete Conversation</DialogTitle>
+          <DialogDescription>
+            This conversation and all its messages will be permanently deleted.
+            This action cannot be undone.
+          </DialogDescription>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
+            <DialogClose
+              style={{
+                padding: "7px 16px",
+                borderRadius: "var(--radius-md)",
+                border: "1px solid var(--color-border)",
+                background: "transparent",
+                cursor: "pointer",
+                fontSize: "13px",
+                fontWeight: 500,
+                color: "var(--color-text-primary)",
+              }}
+            >
+              Cancel
+            </DialogClose>
+            <button
+              onClick={() => !isDeleting && confirmDeleteId && handleDeleteConversation(confirmDeleteId)}
+              disabled={isDeleting}
+              style={{
+                padding: "7px 16px",
+                borderRadius: "var(--radius-md)",
+                border: "none",
+                background: isDeleting ? "#EF4444" : "#DC2626",
+                cursor: isDeleting ? "not-allowed" : "pointer",
+                fontSize: "13px",
+                fontWeight: 500,
+                color: "#FFFFFF",
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                opacity: isDeleting ? 0.85 : 1,
+              }}
+              onMouseEnter={(e) => { if (!isDeleting) e.currentTarget.style.background = "#B91C1C"; }}
+              onMouseLeave={(e) => { if (!isDeleting) e.currentTarget.style.background = "#DC2626"; }}
+            >
+              {isDeleting && (
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  style={{
+                    animation: "spin 0.7s linear infinite",
+                    flexShrink: 0,
+                  }}
+                >
+                  <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                </svg>
+              )}
+              {isDeleting ? "Deleting…" : "Delete"}
+            </button>
+          </div>
+        </DialogPopup>
+      </Dialog>
     </TooltipProvider>
   );
 }

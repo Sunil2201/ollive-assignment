@@ -8,7 +8,7 @@ from routes.chat import chat_bp
 from routes.conversations import conversations_bp
 from routes.metrics import metrics_bp
 
-load_dotenv()
+load_dotenv(override=True)  # always prefer .env over system environment variables
 monkey.patch_all()
 
 app = Flask(__name__)
