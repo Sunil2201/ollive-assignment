@@ -3,12 +3,11 @@
   <component name="ChangeListManager">
     <list default="true" id="81612ca5-70ed-4772-943f-3783eefa8f4e" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/backend/app.py" beforeDir="false" afterPath="$PROJECT_DIR$/apps/backend/app.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/backend/db.py" beforeDir="false" afterPath="$PROJECT_DIR$/apps/backend/db.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/backend/routes/chat.py" beforeDir="false" afterPath="$PROJECT_DIR$/apps/backend/routes/chat.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/backend/routes/conversations.py" beforeDir="false" afterPath="$PROJECT_DIR$/apps/backend/routes/conversations.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/apps/backend/routes/metrics.py" beforeDir="false" afterPath="$PROJECT_DIR$/apps/backend/routes/metrics.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/packages/sdk/llm_sdk/providers.py" beforeDir="false" afterPath="$PROJECT_DIR$/packages/sdk/llm_sdk/providers.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/ingestion/app.py" beforeDir="false" afterPath="$PROJECT_DIR$/apps/ingestion/app.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/ingestion/consumer.py" beforeDir="false" afterPath="$PROJECT_DIR$/apps/ingestion/consumer.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/ingestion/routes.py" beforeDir="false" afterPath="$PROJECT_DIR$/apps/ingestion/routes.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/ingestion/validator.py" beforeDir="false" afterPath="$PROJECT_DIR$/apps/ingestion/validator.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/ingestion/writer.py" beforeDir="false" afterPath="$PROJECT_DIR$/apps/ingestion/writer.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
