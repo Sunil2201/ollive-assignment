@@ -142,6 +142,124 @@ def resume_conversation(conversation_id: str):
     return jsonify({"id": conversation_id, "status": "active"})
 
 
+@conversations_bp.get("/metrics")
+def list_conversation_metrics():
+    """Return all conversations for the session enriched with per-conversation aggregates."""
+    session_id = request.headers.get("X-Session-ID")
+    if not session_id:
+        return jsonify({"error": "X-Session-ID header is required"}), 400
+
+    from_ts = request.args.get("from")
+    to_ts   = request.args.get("to")
+
+    # Default: last 7 days (wider window than summary cards)
+    from datetime import datetime, timezone, timedelta
+    if not to_ts:
+        to_dt = datetime.now(timezone.utc)
+    else:
+        to_dt = datetime.fromisoformat(to_ts.replace("Z", "+00:00"))
+
+    if not from_ts:
+        from_dt = to_dt - timedelta(days=7)
+    else:
+        from_dt = datetime.fromisoformat(from_ts.replace("Z", "+00:00"))
+
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                    c.id,
+                    c.title,
+                    c.status,
+                    c.created_at,
+                    c.updated_at,
+                    COUNT(il.id)                                                         AS request_count,
+                    SUM(il.total_tokens)                                                 AS total_tokens,
+                    ROUND(AVG(il.latency_ms))                                            AS avg_latency_ms,
+                    MAX(il.latency_ms)                                                   AS max_latency_ms,
+                    ROUND(
+                        100.0 * SUM(CASE WHEN il.status = 'error' THEN 1 ELSE 0 END)
+                        / NULLIF(COUNT(il.id), 0), 1
+                    )                                                                    AS error_rate,
+                    MODE() WITHIN GROUP (ORDER BY il.provider)                          AS primary_provider,
+                    MODE() WITHIN GROUP (ORDER BY il.model)                             AS primary_model,
+                    MIN(il.request_at)                                                   AS first_request_at,
+                    MAX(il.response_at)                                                  AS last_response_at
+                FROM conversations c
+                LEFT JOIN inference_logs il ON il.conversation_id = c.id
+                WHERE c.session_id = %s
+                  AND c.created_at BETWEEN %s AND %s
+                GROUP BY c.id, c.title, c.status, c.created_at, c.updated_at
+                ORDER BY c.updated_at DESC
+                LIMIT 50
+                """,
+                (session_id, from_dt, to_dt),
+            )
+            rows = cur.fetchall()
+            cols = [desc[0] for desc in cur.description]
+
+    result = []
+    for row in rows:
+        item = dict(zip(cols, row))
+        for key in ("created_at", "updated_at", "first_request_at", "last_response_at"):
+            if item.get(key):
+                item[key] = item[key].isoformat()
+        # Ensure numeric fields are JSON-serialisable (Decimal → float)
+        for key in ("total_tokens", "avg_latency_ms", "max_latency_ms", "error_rate", "request_count"):
+            if item.get(key) is not None:
+                item[key] = int(item[key]) if key in ("total_tokens", "avg_latency_ms", "max_latency_ms", "request_count") else float(item[key])
+        result.append(item)
+
+    return jsonify(result)
+
+
+@conversations_bp.get("/<conversation_id>/metrics")
+def get_conversation_metrics(conversation_id: str):
+    """Return turn-by-turn inference logs for a single conversation."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            # Verify conversation exists
+            cur.execute("SELECT id FROM conversations WHERE id = %s", (conversation_id,))
+            if cur.fetchone() is None:
+                return jsonify({"error": "Conversation not found"}), 404
+
+            cur.execute(
+                """
+                SELECT
+                    il.id,
+                    il.provider,
+                    il.model,
+                    il.status,
+                    il.latency_ms,
+                    il.prompt_tokens,
+                    il.completion_tokens,
+                    il.total_tokens,
+                    il.error_code,
+                    il.input_preview,
+                    il.output_preview,
+                    il.request_at,
+                    il.response_at
+                FROM inference_logs il
+                WHERE il.conversation_id = %s
+                ORDER BY il.request_at ASC
+                """,
+                (conversation_id,),
+            )
+            rows = cur.fetchall()
+            cols = [desc[0] for desc in cur.description]
+
+    result = []
+    for row in rows:
+        item = dict(zip(cols, row))
+        for key in ("request_at", "response_at"):
+            if item.get(key):
+                item[key] = item[key].isoformat()
+        result.append(item)
+
+    return jsonify(result)
+
+
 @conversations_bp.delete("/<conversation_id>")
 def delete_conversation(conversation_id: str):
     with get_conn() as conn:

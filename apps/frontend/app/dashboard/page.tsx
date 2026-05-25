@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
-import { CalendarIcon } from "lucide-react";
+import { CalendarIcon, ChevronRight, X } from "lucide-react";
 import type { DateRange } from "react-day-picker";
+import type { ConversationMetric, InferenceLogEntry } from "@/types";
+import { fetchConversationMetrics, fetchConversationDetail } from "@/lib/api";
 import {
   LineChart,
   Line,
@@ -205,6 +207,17 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
+  /* Per-conversation metrics state */
+  const [convMetrics, setConvMetrics] = useState<ConversationMetric[]>([]);
+  const [convLoading, setConvLoading] = useState(true);
+  const [convError, setConvError] = useState<string | null>(null);
+
+  /* Drill-down state */
+  const [selectedConv, setSelectedConv] = useState<ConversationMetric | null>(null);
+  const [logEntries, setLogEntries] = useState<InferenceLogEntry[]>([]);
+  const [logLoading, setLogLoading] = useState(false);
+  const [logError, setLogError] = useState<string | null>(null);
+
   /* Fetch on mount + range change */
   useEffect(() => {
     if (!range.from || !range.to) return;
@@ -227,6 +240,46 @@ export default function DashboardPage() {
         setLoading(false);
       });
   }, [range]);
+
+  /* Fetch per-conversation metrics when range changes */
+  useEffect(() => {
+    if (!range.from || !range.to) return;
+    setConvLoading(true);
+    setConvError(null);
+    setSelectedConv(null);
+    fetchConversationMetrics(range.from.toISOString(), range.to.toISOString())
+      .then((rows) => {
+        setConvMetrics(rows);
+        setConvLoading(false);
+      })
+      .catch((err: unknown) => {
+        setConvError(err instanceof Error ? err.message : "Failed to load conversation metrics");
+        setConvLoading(false);
+      });
+  }, [range]);
+
+  /* Open drill-down for a conversation */
+  const openConvDetail = useCallback((conv: ConversationMetric) => {
+    setSelectedConv(conv);
+    setLogEntries([]);
+    setLogError(null);
+    setLogLoading(true);
+    fetchConversationDetail(conv.id)
+      .then((entries) => {
+        setLogEntries(entries);
+        setLogLoading(false);
+      })
+      .catch((err: unknown) => {
+        setLogError(err instanceof Error ? err.message : "Failed to load turn details");
+        setLogLoading(false);
+      });
+  }, []);
+
+  const closeConvDetail = useCallback(() => {
+    setSelectedConv(null);
+    setLogEntries([]);
+    setLogError(null);
+  }, []);
 
   /* Date range label */
   const rangeLabel =
@@ -686,10 +739,604 @@ export default function DashboardPage() {
                 </CardContent>
               </Card>
             </div>
+
+
+            {/* ══════════════════════════════════════
+                CONVERSATIONS TABLE (Langfuse-style)
+            ══════════════════════════════════════ */}
+            <div style={{ marginTop: "24px" }}>
+              <div
+                style={{
+                  fontSize: "14px",
+                  fontWeight: 500,
+                  color: "var(--color-text-primary)",
+                  marginBottom: "12px",
+                }}
+              >
+                Conversations
+              </div>
+
+              {convError && (
+                <div
+                  style={{
+                    padding: "10px 14px",
+                    borderRadius: "var(--radius-md)",
+                    background: "#FEF2F2",
+                    border: "1px solid #FECACA",
+                    color: "#DC2626",
+                    fontSize: "13px",
+                    marginBottom: "12px",
+                  }}
+                >
+                  Could not load conversations: {convError}
+                </div>
+              )}
+
+              {/* Detail panel */}
+              {selectedConv && (
+                <ConversationDetailPanel
+                  conv={selectedConv}
+                  entries={logEntries}
+                  loading={logLoading}
+                  error={logError}
+                  onClose={closeConvDetail}
+                  getProviderBadgeStyle={getProviderBadgeStyle}
+                  errorRateColor={errorRateColor}
+                  formatNumber={formatNumber}
+                />
+              )}
+
+              {!selectedConv && (
+                <Card
+                  style={{
+                    background: "#FFFFFF",
+                    border: "1px solid var(--color-border)",
+                    borderRadius: "var(--radius-lg)",
+                    boxShadow: "none",
+                    padding: 0,
+                  }}
+                  className="ring-0"
+                >
+                  <CardContent style={{ padding: 0 }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                      <thead>
+                        <tr>
+                          {["Title", "Provider", "Model", "Turns", "Avg Latency", "Total Tokens", "Error Rate", "Status", "Created"].map((h) => (
+                            <th
+                              key={h}
+                              style={{
+                                textAlign: "left",
+                                fontSize: "11px",
+                                fontWeight: 500,
+                                textTransform: "uppercase",
+                                letterSpacing: "0.04em",
+                                color: "var(--color-text-secondary)",
+                                padding: "12px 14px 10px",
+                                borderBottom: "1px solid var(--color-border)",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {h}
+                            </th>
+                          ))}
+                          <th style={{ width: 20, borderBottom: "1px solid var(--color-border)" }} />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {convLoading
+                          ? Array.from({ length: 4 }).map((_, i) => (
+                              <tr key={i}>
+                                {Array.from({ length: 10 }).map((__, j) => (
+                                  <td key={j} style={{ padding: "12px 14px" }}>
+                                    <Skeleton height={14} width={j === 0 ? 160 : 60} />
+                                  </td>
+                                ))}
+                              </tr>
+                            ))
+                          : convMetrics.length === 0
+                          ? (
+                            <tr>
+                              <td
+                                colSpan={10}
+                                style={{
+                                  padding: "32px 14px",
+                                  textAlign: "center",
+                                  fontSize: "13px",
+                                  color: "var(--color-text-secondary)",
+                                }}
+                              >
+                                No conversations in this date range
+                              </td>
+                            </tr>
+                          )
+                          : convMetrics.map((conv) => (
+                              <ConversationRow
+                                key={conv.id}
+                                conv={conv}
+                                onClick={() => openConvDetail(conv)}
+                                getProviderBadgeStyle={getProviderBadgeStyle}
+                                errorRateColor={errorRateColor}
+                                formatNumber={formatNumber}
+                              />
+                            ))
+                        }
+                      </tbody>
+                    </table>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+
           </div>
         </main>
       </div>
     </>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Conversation list row
+───────────────────────────────────────────────────────────── */
+function ConversationRow({
+  conv,
+  onClick,
+  getProviderBadgeStyle,
+  errorRateColor,
+  formatNumber,
+}: {
+  conv: ConversationMetric;
+  onClick: () => void;
+  getProviderBadgeStyle: (p: string) => React.CSSProperties;
+  errorRateColor: (r: number) => string;
+  formatNumber: (n: number) => string;
+}) {
+  const [hovered, setHovered] = useState(false);
+
+  const isActive = conv.status === "active";
+  const createdDate = new Date(conv.created_at).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  return (
+    <tr
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        background: hovered ? "#F8F9FC" : "transparent",
+        cursor: "pointer",
+        transition: "background 100ms ease",
+        borderBottom: "1px solid var(--color-border)",
+      }}
+    >
+      {/* Title */}
+      <td
+        style={{
+          padding: "11px 14px",
+          fontSize: "13px",
+          color: "var(--color-text-primary)",
+          maxWidth: 220,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+          fontWeight: 500,
+        }}
+      >
+        {conv.title || "Untitled"}
+      </td>
+
+      {/* Provider */}
+      <td style={{ padding: "11px 14px" }}>
+        {conv.primary_provider ? (
+          <Badge
+            style={{
+              ...getProviderBadgeStyle(conv.primary_provider),
+              border: "none",
+              fontWeight: 500,
+              fontSize: "11px",
+              textTransform: "capitalize",
+            }}
+          >
+            {conv.primary_provider}
+          </Badge>
+        ) : (
+          <span style={{ color: "var(--color-text-secondary)", fontSize: "13px" }}>—</span>
+        )}
+      </td>
+
+      {/* Model */}
+      <td
+        style={{
+          padding: "11px 14px",
+          fontSize: "12px",
+          color: "var(--color-text-secondary)",
+          maxWidth: 140,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {conv.primary_model ?? "—"}
+      </td>
+
+      {/* Turns */}
+      <td style={{ padding: "11px 14px", fontSize: "13px", color: "var(--color-text-primary)" }}>
+        {conv.request_count}
+      </td>
+
+      {/* Avg latency */}
+      <td style={{ padding: "11px 14px", fontSize: "13px", color: "var(--color-text-primary)" }}>
+        {conv.avg_latency_ms != null ? `${conv.avg_latency_ms.toLocaleString()} ms` : "—"}
+      </td>
+
+      {/* Total tokens */}
+      <td style={{ padding: "11px 14px", fontSize: "13px", color: "var(--color-text-primary)" }}>
+        {conv.total_tokens != null ? formatNumber(conv.total_tokens) : "—"}
+      </td>
+
+      {/* Error rate */}
+      <td style={{ padding: "11px 14px" }}>
+        {conv.error_rate != null ? (
+          <span
+            style={{
+              fontSize: "13px",
+              fontWeight: 500,
+              color: errorRateColor(conv.error_rate),
+            }}
+          >
+            {conv.error_rate}%
+          </span>
+        ) : (
+          <span style={{ fontSize: "13px", color: "#15803D", fontWeight: 500 }}>0%</span>
+        )}
+      </td>
+
+      {/* Status */}
+      <td style={{ padding: "11px 14px" }}>
+        <span
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 5,
+            padding: "2px 8px",
+            borderRadius: "var(--radius-full, 999px)",
+            fontSize: "11px",
+            fontWeight: 500,
+            background: isActive ? "#F0FDF4" : "#F8FAFC",
+            color: isActive ? "#15803D" : "#64748B",
+            border: `1px solid ${isActive ? "#BBF7D0" : "#E2E8F0"}`,
+          }}
+        >
+          <span
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: "50%",
+              background: isActive ? "#22C55E" : "#94A3B8",
+              flexShrink: 0,
+            }}
+          />
+          {conv.status}
+        </span>
+      </td>
+
+      {/* Created */}
+      <td
+        style={{
+          padding: "11px 14px",
+          fontSize: "12px",
+          color: "var(--color-text-secondary)",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {createdDate}
+      </td>
+
+      {/* Chevron */}
+      <td style={{ padding: "11px 10px 11px 0", color: "var(--color-text-secondary)" }}>
+        <ChevronRight size={14} />
+      </td>
+    </tr>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Conversation detail panel (Langfuse trace-style)
+───────────────────────────────────────────────────────────── */
+function ConversationDetailPanel({
+  conv,
+  entries,
+  loading,
+  error,
+  onClose,
+  getProviderBadgeStyle,
+  errorRateColor,
+  formatNumber,
+}: {
+  conv: ConversationMetric;
+  entries: InferenceLogEntry[];
+  loading: boolean;
+  error: string | null;
+  onClose: () => void;
+  getProviderBadgeStyle: (p: string) => React.CSSProperties;
+  errorRateColor: (r: number) => string;
+  formatNumber: (n: number) => string;
+}) {
+  return (
+    <Card
+      style={{
+        background: "#FFFFFF",
+        border: "1px solid var(--color-border)",
+        borderRadius: "var(--radius-lg)",
+        boxShadow: "none",
+        padding: 0,
+        marginBottom: "0",
+      }}
+      className="ring-0"
+    >
+      <CardContent style={{ padding: "20px 24px" }}>
+        {/* Header row */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "flex-start",
+            justifyContent: "space-between",
+            marginBottom: "16px",
+          }}
+        >
+          <div>
+            <div
+              style={{
+                fontSize: "15px",
+                fontWeight: 500,
+                color: "var(--color-text-primary)",
+                marginBottom: "6px",
+              }}
+            >
+              {conv.title || "Untitled"}
+            </div>
+            {/* Stats strip */}
+            <div
+              style={{
+                display: "flex",
+                gap: "20px",
+                flexWrap: "wrap",
+              }}
+            >
+              {[
+                { label: "Turns", value: String(conv.request_count) },
+                { label: "Avg latency", value: conv.avg_latency_ms != null ? `${conv.avg_latency_ms.toLocaleString()} ms` : "—" },
+                { label: "Total tokens", value: conv.total_tokens != null ? formatNumber(conv.total_tokens) : "—" },
+                { label: "Error rate", value: conv.error_rate != null ? `${conv.error_rate}%` : "0%" },
+                { label: "Provider", value: conv.primary_provider ?? "—" },
+                { label: "Model", value: conv.primary_model ?? "—" },
+              ].map(({ label, value }) => (
+                <div key={label} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                  <span style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--color-text-secondary)", fontWeight: 500 }}>
+                    {label}
+                  </span>
+                  <span style={{ fontSize: "13px", color: "var(--color-text-primary)", fontWeight: 500 }}>
+                    {value}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <button
+            onClick={onClose}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 28,
+              height: 28,
+              borderRadius: "var(--radius-sm)",
+              border: "1px solid var(--color-border)",
+              background: "transparent",
+              cursor: "pointer",
+              color: "var(--color-text-secondary)",
+              flexShrink: 0,
+            }}
+          >
+            <X size={14} />
+          </button>
+        </div>
+
+        {/* Divider */}
+        <div style={{ height: 1, background: "var(--color-border)", marginBottom: "16px" }} />
+
+        {/* Turns section label */}
+        <div
+          style={{
+            fontSize: "12px",
+            fontWeight: 500,
+            textTransform: "uppercase",
+            letterSpacing: "0.04em",
+            color: "var(--color-text-secondary)",
+            marginBottom: "10px",
+          }}
+        >
+          Turns
+        </div>
+
+        {error && (
+          <div
+            style={{
+              padding: "10px 14px",
+              borderRadius: "var(--radius-md)",
+              background: "#FEF2F2",
+              border: "1px solid #FECACA",
+              color: "#DC2626",
+              fontSize: "13px",
+              marginBottom: "12px",
+            }}
+          >
+            {error}
+          </div>
+        )}
+
+        {loading ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} height={36} />
+            ))}
+          </div>
+        ) : entries.length === 0 ? (
+          <div style={{ fontSize: "13px", color: "var(--color-text-secondary)", padding: "16px 0" }}>
+            No inference logs recorded for this conversation.
+          </div>
+        ) : (
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr>
+                {["#", "Provider", "Model", "Latency", "Prompt Tokens", "Completion Tokens", "Total Tokens", "Status", "Input Preview"].map((h) => (
+                  <th
+                    key={h}
+                    style={{
+                      textAlign: "left",
+                      fontSize: "11px",
+                      fontWeight: 500,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.04em",
+                      color: "var(--color-text-secondary)",
+                      padding: "0 10px 8px",
+                      borderBottom: "1px solid var(--color-border)",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map((entry, idx) => (
+                <TurnRow
+                  key={entry.id}
+                  entry={entry}
+                  turnNumber={idx + 1}
+                  getProviderBadgeStyle={getProviderBadgeStyle}
+                  errorRateColor={errorRateColor}
+                />
+              ))}
+            </tbody>
+          </table>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Single turn row inside the detail panel
+───────────────────────────────────────────────────────────── */
+function TurnRow({
+  entry,
+  turnNumber,
+  getProviderBadgeStyle,
+  errorRateColor: _errorRateColor,
+}: {
+  entry: InferenceLogEntry;
+  turnNumber: number;
+  getProviderBadgeStyle: (p: string) => React.CSSProperties;
+  errorRateColor: (r: number) => string;
+}) {
+  const [hovered, setHovered] = useState(false);
+  const isError = entry.status === "error";
+
+  return (
+    <tr
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        background: hovered ? "#F8F9FC" : isError ? "#FFF8F8" : "transparent",
+        transition: "background 100ms ease",
+        borderBottom: "1px solid var(--color-border)",
+      }}
+    >
+      {/* Turn # */}
+      <td style={{ padding: "9px 10px", fontSize: "12px", color: "var(--color-text-secondary)", whiteSpace: "nowrap" }}>
+        {turnNumber}
+      </td>
+
+      {/* Provider */}
+      <td style={{ padding: "9px 10px" }}>
+        <Badge
+          style={{
+            ...getProviderBadgeStyle(entry.provider),
+            border: "none",
+            fontWeight: 500,
+            fontSize: "11px",
+            textTransform: "capitalize",
+          }}
+        >
+          {entry.provider}
+        </Badge>
+      </td>
+
+      {/* Model */}
+      <td style={{ padding: "9px 10px", fontSize: "12px", color: "var(--color-text-secondary)", whiteSpace: "nowrap", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis" }}>
+        {entry.model}
+      </td>
+
+      {/* Latency */}
+      <td style={{ padding: "9px 10px", fontSize: "13px", color: "var(--color-text-primary)", whiteSpace: "nowrap" }}>
+        {entry.latency_ms != null ? `${entry.latency_ms.toLocaleString()} ms` : "—"}
+      </td>
+
+      {/* Prompt tokens */}
+      <td style={{ padding: "9px 10px", fontSize: "13px", color: "var(--color-text-primary)" }}>
+        {entry.prompt_tokens?.toLocaleString() ?? "—"}
+      </td>
+
+      {/* Completion tokens */}
+      <td style={{ padding: "9px 10px", fontSize: "13px", color: "var(--color-text-primary)" }}>
+        {entry.completion_tokens?.toLocaleString() ?? "—"}
+      </td>
+
+      {/* Total tokens */}
+      <td style={{ padding: "9px 10px", fontSize: "13px", color: "var(--color-text-primary)", fontWeight: 500 }}>
+        {entry.total_tokens?.toLocaleString() ?? "—"}
+      </td>
+
+      {/* Status */}
+      <td style={{ padding: "9px 10px" }}>
+        <span
+          style={{
+            display: "inline-block",
+            padding: "2px 8px",
+            borderRadius: "var(--radius-full, 999px)",
+            fontSize: "11px",
+            fontWeight: 500,
+            background: isError ? "#FEF2F2" : "#F0FDF4",
+            color: isError ? "#DC2626" : "#15803D",
+            border: `1px solid ${isError ? "#FECACA" : "#BBF7D0"}`,
+          }}
+        >
+          {isError ? (entry.error_code ?? "error") : "success"}
+        </span>
+      </td>
+
+      {/* Input preview */}
+      <td
+        style={{
+          padding: "9px 10px",
+          fontSize: "12px",
+          color: "var(--color-text-secondary)",
+          maxWidth: 260,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+        title={entry.input_preview ?? undefined}
+      >
+        {entry.input_preview ?? "—"}
+      </td>
+    </tr>
   );
 }
 

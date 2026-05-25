@@ -1,5 +1,11 @@
 import { getSessionId } from "@/lib/config";
-import type { Conversation, ConversationWithMessages, Message } from "@/types";
+import type {
+  Conversation,
+  ConversationWithMessages,
+  Message,
+  ConversationMetric,
+  InferenceLogEntry,
+} from "@/types";
 
 interface SendMessagePayload {
   messages: { role: string; content: string }[];
@@ -161,6 +167,27 @@ export async function deleteConversation(id: string): Promise<void> {
     method: "DELETE",
   });
   if (!res.ok) throw new Error(`Failed to delete conversation: ${res.status}`);
+}
+
+export async function fetchConversationMetrics(
+  from: string,
+  to: string
+): Promise<ConversationMetric[]> {
+  const sessionId = getSessionId();
+  const res = await fetch(
+    `/api/conversations/metrics?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+    { headers: { "X-Session-ID": sessionId } }
+  );
+  if (!res.ok) throw new Error(`Failed to fetch conversation metrics: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchConversationDetail(
+  id: string
+): Promise<InferenceLogEntry[]> {
+  const res = await fetch(`/api/conversations/${id}/metrics`);
+  if (!res.ok) throw new Error(`Failed to fetch conversation detail: ${res.status}`);
+  return res.json();
 }
 
 export async function sendMessage(
