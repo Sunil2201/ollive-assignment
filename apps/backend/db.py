@@ -1,19 +1,15 @@
 import os
-from contextlib import contextmanager
-
 import psycopg2
+
+from contextlib import contextmanager
 from psycopg2 import pool
 from dotenv import load_dotenv
 
 load_dotenv()
-
 _pool: psycopg2.pool.ThreadedConnectionPool | None = None
 
 
 def _get_pool() -> psycopg2.pool.ThreadedConnectionPool:
-    """Initialise the connection pool on first use so the module can be
-    imported without DATABASE_URL being set (e.g. during testing or when
-    the env file hasn't been loaded yet at import time)."""
     global _pool
     if _pool is None:
         database_url = os.environ.get("DATABASE_URL")

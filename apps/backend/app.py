@@ -20,34 +20,36 @@ CORS(
     supports_credentials=False,
 )
 
-# ---------------------------------------------------------------------------
-# Blueprints
-# ---------------------------------------------------------------------------
 app.register_blueprint(chat_bp)
 app.register_blueprint(conversations_bp)
 app.register_blueprint(metrics_bp)
 
-
-# ---------------------------------------------------------------------------
-# Middleware
-# ---------------------------------------------------------------------------
 @app.before_request
 def log_request():
     print(f"{request.method} {request.path}", flush=True)
 
 
-# ---------------------------------------------------------------------------
-# Global error handler
-# ---------------------------------------------------------------------------
+@app.errorhandler(400)
+def handle_bad_request(_):
+    return jsonify({"error": "bad request"}), 400
+
+
+@app.errorhandler(404)
+def handle_not_found(_):
+    return jsonify({"error": "not found"}), 404
+
+
+@app.errorhandler(405)
+def handle_method_not_allowed(_):
+    return jsonify({"error": "method not allowed"}), 405
+
+
 @app.errorhandler(Exception)
 def handle_exception(exc: Exception):
-    app.logger.exception("Unhandled exception")
-    return jsonify({"error": str(exc)}), 500
+    app.logger.exception("Unhandled exception: %s", exc)
+    return jsonify({"error": "internal server error"}), 500
 
 
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
 if __name__ == "__main__":
     port = int(os.environ.get("FLASK_PORT", 5000))
     from gevent.pywsgi import WSGIServer

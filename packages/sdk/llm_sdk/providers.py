@@ -21,13 +21,42 @@ _COMPACTION_BETA = "compact-2026-01-12"
 _MAX_TOKENS = 8096
 
 
+def _mark_cacheable(msg: dict) -> None:
+    """
+    Attach ``cache_control: {type: "ephemeral"}`` to *msg* in-place so the
+    Anthropic API caches the stable prefix ending at this message.
+
+    - Plain-string content is promoted to a single-block content list.
+    - Structured content (e.g. a compaction block list) has ``cache_control``
+      added to its last ``text`` block.
+    """
+    content = msg.get("content")
+
+    if isinstance(content, str):
+        msg["content"] = [
+            {"type": "text", "text": content, "cache_control": {"type": "ephemeral"}}
+        ]
+    elif isinstance(content, list) and content:
+        # Walk backwards and mark the last text block.
+        for block in reversed(content):
+            if isinstance(block, dict) and block.get("type") == "text":
+                block["cache_control"] = {"type": "ephemeral"}
+                break
+
+
 def _prepare_anthropic_messages(messages: list[dict]) -> list[dict]:
     """
     Convert messages for the Anthropic API.
 
-    Stored compaction blocks are serialised as JSON arrays in the DB content
-    field.  This function detects them and converts them back to structured
-    content lists so the API can use them to skip pre-compaction history.
+    1. Deserialises stored compaction blocks (JSON arrays) back into structured
+       content lists so the API can replay the compaction summary.
+
+    2. Marks the second-to-last message with ``cache_control: ephemeral`` so
+       Anthropic caches the entire conversation history up to the previous
+       assistant turn.  Only the new (last) user message is processed fresh,
+       which cuts input-token costs significantly on long conversations.
+       The cache is skipped automatically when fewer than 1 024 tokens are
+       present — no client-side guard needed.
     """
     result = []
     for msg in messages:
@@ -44,6 +73,12 @@ def _prepare_anthropic_messages(messages: list[dict]) -> list[dict]:
             except (_json.JSONDecodeError, ValueError):
                 pass
         result.append(msg)
+
+    # Cache the stable prefix (everything before the current user turn).
+    # Requires at least two messages (prior context + current user message).
+    if len(result) >= 2:
+        _mark_cacheable(result[-2])
+
     return result
 
 
