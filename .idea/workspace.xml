@@ -2,8 +2,14 @@
 <project version="4">
   <component name="ChangeListManager">
     <list default="true" id="81612ca5-70ed-4772-943f-3783eefa8f4e" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/.env.example" beforeDir="false" afterPath="$PROJECT_DIR$/.env.example" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/apps/frontend/app/api/conversations/[id]/resume/route.ts" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/apps/frontend/app/api/conversations/[id]/stop/route.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/backend/routes/chat.py" beforeDir="false" afterPath="$PROJECT_DIR$/apps/backend/routes/chat.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/backend/routes/conversations.py" beforeDir="false" afterPath="$PROJECT_DIR$/apps/backend/routes/conversations.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/frontend/app/page.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/apps/frontend/app/page.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/apps/frontend/lib/api.ts" beforeDir="false" afterPath="$PROJECT_DIR$/apps/frontend/lib/api.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/packages/sdk/llm_sdk/client.py" beforeDir="false" afterPath="$PROJECT_DIR$/packages/sdk/llm_sdk/client.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/packages/sdk/llm_sdk/providers.py" beforeDir="false" afterPath="$PROJECT_DIR$/packages/sdk/llm_sdk/providers.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -13,6 +19,18 @@
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
+  <component name="GitHubPullRequestSearchHistory"><![CDATA[{
+  "lastFilter": {
+    "state": "OPEN",
+    "assignee": "sunilballani"
+  }
+}]]></component>
+  <component name="GithubPullRequestsUISettings"><![CDATA[{
+  "selectedUrlAndAccountId": {
+    "url": "https://github.com/Sunil2201/ollive-assignment.git",
+    "accountId": "d371a2fb-5bab-4f3d-9f10-05a2c6cba7d5"
+  }
+}]]></component>
   <component name="ProblemsViewState">
     <option name="selectedTabId" value="ProjectErrors" />
   </component>
@@ -28,12 +46,12 @@
   <component name="PropertiesComponent"><![CDATA[{
   "keyToString": {
     "ModuleVcsDetector.initialDetectionPerformed": "true",
-    "Python.app (1).executor": "Run",
-    "Python.app.executor": "Run",
+    "Python.app (1).executor": "Debug",
+    "Python.app.executor": "Debug",
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
     "RunOnceActivity.git.unshallow": "true",
-    "git-widget-placeholder": "master",
+    "git-widget-placeholder": "main",
     "last_opened_file_path": "D:/ollive-assignment",
     "settings.editor.selected.configurable": "com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable"
   }
@@ -87,8 +105,8 @@
     </configuration>
     <recent_temporary>
       <list>
-        <item itemvalue="Python.app" />
         <item itemvalue="Python.app (1)" />
+        <item itemvalue="Python.app" />
       </list>
     </recent_temporary>
   </component>
@@ -101,5 +119,16 @@
       <updated>1779530477594</updated>
     </task>
     <servers />
+  </component>
+  <component name="XDebuggerManager">
+    <breakpoint-manager>
+      <breakpoints>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/apps/backend/routes/conversations.py</url>
+          <line>102</line>
+          <option name="timeStamp" value="1" />
+        </line-breakpoint>
+      </breakpoints>
+    </breakpoint-manager>
   </component>
 </project>

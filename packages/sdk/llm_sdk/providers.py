@@ -5,6 +5,7 @@ Provider functions read API keys from environment variables at call time
 so the module can be imported without keys present.
 """
 
+import json as _json
 import os
 from typing import Generator
 
@@ -12,16 +13,99 @@ from typing import Generator
 
 import anthropic as _anthropic
 
-#TODO: add 8096 to constants
+# Compaction triggers before MAX_CONTEXT_TOKENS is reached, giving headroom.
+# Defaults to 25 000; override with COMPACTION_TRIGGER_TOKENS env var.
+_COMPACTION_TRIGGER = int(os.environ.get("COMPACTION_TRIGGER_TOKENS", "25000"))
+
+_COMPACTION_BETA = "compact-2026-01-12"
+_MAX_TOKENS = 8096
+
+
+def _prepare_anthropic_messages(messages: list[dict]) -> list[dict]:
+    """
+    Convert messages for the Anthropic API.
+
+    Stored compaction blocks are serialised as JSON arrays in the DB content
+    field.  This function detects them and converts them back to structured
+    content lists so the API can use them to skip pre-compaction history.
+    """
+    result = []
+    for msg in messages:
+        content = msg.get("content", "")
+        if isinstance(content, str) and content.startswith("["):
+            try:
+                parsed = _json.loads(content)
+                if isinstance(parsed, list) and any(
+                    isinstance(b, dict) and b.get("type") == "compaction"
+                    for b in parsed
+                ):
+                    result.append({"role": msg["role"], "content": parsed})
+                    continue
+            except (_json.JSONDecodeError, ValueError):
+                pass
+        result.append(msg)
+    return result
+
+
+def _build_compaction_content(response_content) -> tuple[list[dict], str]:
+    """
+    Extract structured content list and plain display text from a response
+    that contains a compaction block.
+
+    Returns (content_list, display_text).
+    """
+    content_list: list[dict] = []
+    text_parts: list[str] = []
+
+    for block in response_content:
+        btype = getattr(block, "type", None)
+        if btype == "compaction":
+            # The compaction summary lives in block.content per the API spec
+            content_list.append({
+                "type": "compaction",
+                "content": getattr(block, "content", ""),
+            })
+        elif btype == "text":
+            text = getattr(block, "text", "")
+            content_list.append({"type": "text", "text": text})
+            text_parts.append(text)
+
+    return content_list, "".join(text_parts)
+
 
 def anthropic_chat(messages: list[dict], model: str) -> dict:
     client = _anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
-    response = client.messages.create(
+    prepared = _prepare_anthropic_messages(messages)
+
+    response = client.beta.messages.create(
+        betas=[_COMPACTION_BETA],
         model=model,
-        max_tokens=8096,
-        messages=messages,
+        max_tokens=_MAX_TOKENS,
+        messages=prepared,
+        context_management={
+            "edits": [{
+                "type": "compact_20260112",
+                "trigger": {"type": "input_tokens", "value": _COMPACTION_TRIGGER},
+            }]
+        },
     )
+
+    has_compaction = any(
+        getattr(b, "type", None) == "compaction" for b in response.content
+    )
+
+    if has_compaction:
+        content_list, display_text = _build_compaction_content(response.content)
+        return {
+            # JSON-serialised structured content stored in DB so future requests
+            # can replay the compaction block to the Anthropic API.
+            "content": _json.dumps(content_list),
+            # Plain text returned to the frontend — same as a normal response.
+            "display_content": display_text,
+            "prompt_tokens": response.usage.input_tokens,
+            "completion_tokens": response.usage.output_tokens,
+        }
 
     return {
         "content": response.content[0].text,
@@ -30,16 +114,46 @@ def anthropic_chat(messages: list[dict], model: str) -> dict:
     }
 
 
-def anthropic_stream(messages: list[dict], model: str) -> Generator[str, None, None]:
+def anthropic_stream(
+    messages: list[dict],
+    model: str,
+    compaction_out: list | None = None,
+) -> Generator[str, None, None]:
+    """
+    Stream a response from Anthropic with compaction enabled.
+
+    If compaction occurs, the structured content list (compaction block +
+    text blocks) is appended to *compaction_out* so the caller can persist
+    the JSON form to the database for future requests.
+    """
     client = _anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
-    with client.messages.stream(
+    prepared = _prepare_anthropic_messages(messages)
+
+    with client.beta.messages.stream(
+        betas=[_COMPACTION_BETA],
         model=model,
-        max_tokens=8096,
-        messages=messages,
+        max_tokens=_MAX_TOKENS,
+        messages=prepared,
+        context_management={
+            "edits": [{
+                "type": "compact_20260112",
+                "trigger": {"type": "input_tokens", "value": _COMPACTION_TRIGGER},
+            }]
+        },
     ) as s:
         for text in s.text_stream:
             yield text
+
+        # After streaming completes, check for compaction in the final message.
+        if compaction_out is not None:
+            final_msg = s.get_final_message()
+            has_compaction = any(
+                getattr(b, "type", None) == "compaction" for b in final_msg.content
+            )
+            if has_compaction:
+                content_list, _ = _build_compaction_content(final_msg.content)
+                compaction_out.append(content_list)
 
 
 # ── OpenAI ─────────────────────────────────────────────────────────────────────
@@ -217,7 +331,12 @@ def route(provider: str, messages: list[dict], model: str) -> dict:
     return chat_fn(messages, model)
 
 
-def route_stream(provider: str, messages: list[dict], model: str) -> Generator[str, None, None]:
+def route_stream(
+    provider: str,
+    messages: list[dict],
+    model: str,
+    compaction_out: list | None = None,
+) -> Generator[str, None, None]:
     """Dispatch a streaming call to the appropriate provider."""
     entry = _REGISTRY.get(provider)
     if entry is None:
@@ -225,4 +344,7 @@ def route_stream(provider: str, messages: list[dict], model: str) -> Generator[s
             f"Unknown provider '{provider}'. Must be one of: {', '.join(_REGISTRY)}"
         )
     _, stream_fn = entry
+    # compaction_out is Anthropic-only; other providers ignore it
+    if provider == "anthropic" and compaction_out is not None:
+        return stream_fn(messages, model, compaction_out=compaction_out)
     return stream_fn(messages, model)

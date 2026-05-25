@@ -11,6 +11,7 @@ interface StreamMessagePayload {
   messages: { role: string; content: string }[];
   conversationId: string;
   provider: string;
+  isResume?: boolean;
 }
 
 // Shape the backend /api/chat endpoint actually returns
@@ -29,17 +30,31 @@ export async function streamMessage(
   payload: StreamMessagePayload,
   onChunk: (chunk: string) => void,
   onDone: () => void,
-  onError: (error: string) => void
+  onError: (error: string) => void,
+  onAbort: () => void,
+  signal?: AbortSignal
 ): Promise<void> {
   const sessionId = getSessionId();
-  const res = await fetch("/api/chat/stream", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Session-ID": sessionId,
-    },
-    body: JSON.stringify(payload),
-  });
+
+  let res: Response;
+  try {
+    res = await fetch("/api/chat/stream", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Session-ID": sessionId,
+      },
+      body: JSON.stringify(payload),
+      signal,
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      onAbort();
+      return;
+    }
+    onError(err instanceof Error ? err.message : "Network error");
+    return;
+  }
 
   if (!res.ok || !res.body) {
     onError(`Stream request failed: ${res.status}`);
@@ -50,36 +65,44 @@ export async function streamMessage(
   const decoder = new TextDecoder();
   let buffer = "";
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
 
-    buffer += decoder.decode(value, { stream: true });
+      buffer += decoder.decode(value, { stream: true });
 
-    // Process all complete lines from the buffer
-    const lines = buffer.split("\n");
-    // Keep the last (potentially incomplete) line in the buffer
-    buffer = lines.pop() ?? "";
+      // Process all complete lines from the buffer
+      const lines = buffer.split("\n");
+      // Keep the last (potentially incomplete) line in the buffer
+      buffer = lines.pop() ?? "";
 
-    for (const line of lines) {
-      if (!line.startsWith("data: ")) continue;
-      const jsonStr = line.slice("data: ".length).trim();
-      if (!jsonStr) continue;
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const jsonStr = line.slice("data: ".length).trim();
+        if (!jsonStr) continue;
 
-      try {
-        const parsed = JSON.parse(jsonStr);
-        if (parsed.chunk !== undefined) {
-          onChunk(parsed.chunk);
-        } else if (parsed.done) {
-          onDone();
-          return;
-        } else if (parsed.error) {
-          onError(parsed.error);
-          return;
+        try {
+          const parsed = JSON.parse(jsonStr);
+          if (parsed.chunk !== undefined) {
+            onChunk(parsed.chunk);
+          } else if (parsed.done) {
+            onDone();
+            return;
+          } else if (parsed.error) {
+            onError(parsed.error);
+            return;
+          }
+        } catch {
+          // ignore malformed lines
         }
-      } catch {
-        // ignore malformed lines
       }
+    }
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      onAbort();
+    } else {
+      onError(err instanceof Error ? err.message : "Stream read error");
     }
   }
 }
@@ -109,6 +132,27 @@ export async function cancelConversation(id: string): Promise<Conversation> {
     method: "PATCH",
   });
   if (!res.ok) throw new Error(`Failed to cancel conversation: ${res.status}`);
+  return res.json();
+}
+
+export async function stopConversation(
+  id: string,
+  partialContent: string
+): Promise<Conversation> {
+  const res = await fetch(`/api/conversations/${id}/stop`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ partial_content: partialContent }),
+  });
+  if (!res.ok) throw new Error(`Failed to stop conversation: ${res.status}`);
+  return res.json();
+}
+
+export async function resumeConversation(id: string): Promise<Conversation> {
+  const res = await fetch(`/api/conversations/${id}/resume`, {
+    method: "PATCH",
+  });
+  if (!res.ok) throw new Error(`Failed to resume conversation: ${res.status}`);
   return res.json();
 }
 

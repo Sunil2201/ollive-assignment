@@ -72,6 +72,15 @@ def chat():
                     (user_message_id, conversation_id, last_user_msg["content"]),
                 )
 
+            # Guard: reject sends to cancelled conversations
+            cur.execute(
+                "SELECT status FROM conversations WHERE id = %s",
+                (conversation_id,),
+            )
+            status_row = cur.fetchone()
+            if status_row and status_row[0] == "cancelled":
+                return jsonify({"error": "Conversation is cancelled. Resume it first."}), 400
+
             # Rebuild the full conversation history from the database
             db_messages = _fetch_messages(cur, conversation_id)
 
@@ -85,6 +94,13 @@ def chat():
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 
+    # When Anthropic compaction occurred, result["content"] is a JSON array
+    # (for DB storage / future context replay) while result["display_content"]
+    # is the plain text shown to the user.  For all other cases both are the
+    # same plain text string.
+    store_content   = result["content"]
+    display_content = result.get("display_content", result["content"])
+
     # Persist the assistant reply
     assistant_message_id = str(uuid.uuid4())
     with get_conn() as conn:
@@ -94,7 +110,7 @@ def chat():
                 INSERT INTO messages (id, conversation_id, role, content, created_at)
                 VALUES (%s, %s, 'assistant', %s, NOW())
                 """,
-                (assistant_message_id, conversation_id, result["content"]),
+                (assistant_message_id, conversation_id, store_content),
             )
             # Bump updated_at on the conversation
             cur.execute(
@@ -104,7 +120,7 @@ def chat():
 
     return jsonify(
         {
-            "content": result["content"],
+            "content": display_content,
             "conversationId": conversation_id,
             "messageId": assistant_message_id,
         }
@@ -121,6 +137,7 @@ def chat_stream():
     messages = data.get("messages", [])
     conversation_id = data.get("conversationId") or str(uuid.uuid4())
     provider = data.get("provider", "")
+    is_resume = bool(data.get("isResume", False))
 
     if provider not in PROVIDER_MODELS:
         return jsonify({"error": "unsupported provider"}), 400
@@ -157,20 +174,60 @@ def chat_stream():
                     (user_message_id, conversation_id, last_user_msg["content"]),
                 )
 
+            # Guard: reject sends to cancelled conversations
+            cur.execute(
+                "SELECT status FROM conversations WHERE id = %s",
+                (conversation_id,),
+            )
+            status_row = cur.fetchone()
+            if status_row and status_row[0] == "cancelled":
+                return jsonify({"error": "Conversation is cancelled. Resume it first."}), 400
+
             # Rebuild the full conversation history from the database
             db_messages = _fetch_messages(cur, conversation_id)
 
+    # For resume: replace the literal "resume" user message with a precise continuation
+    # prompt so the LLM picks up from the exact cut-off point without repeating itself.
+    # db_messages ends with: [..., {assistant: partial}, {user: "resume"}]
+    if is_resume and db_messages and db_messages[-1]["role"] == "user":
+        llm_messages = db_messages[:-1] + [
+            {
+                "role": "user",
+                "content": (
+                    "Please continue your previous response from exactly where you stopped. "
+                    "Do not repeat anything you already said — start directly with the next word or sentence."
+                ),
+            }
+        ]
+    else:
+        llm_messages = db_messages
+
     def generate():
         full_content = ""
+        # compaction_out is populated by anthropic_stream when a compaction
+        # block is emitted.  It holds the full structured content list
+        # (compaction block + text blocks) that must be stored in the DB so
+        # future requests can replay the compaction block to the Anthropic API.
+        compaction_out: list = []
+
         try:
             # _llm.stream() handles: trim_context, PII preview, timing, log dispatch
             for chunk in _llm.stream(
                 provider,
-                db_messages,
+                llm_messages,
                 ChatOptions(conversation_id=conversation_id),
+                compaction_out=compaction_out,
             ):
                 full_content += chunk
                 yield f"data: {json.dumps({'chunk': chunk})}\n\n"
+
+            # When compaction occurred, persist the JSON-serialised structured
+            # content so _prepare_anthropic_messages() can reconstruct it on
+            # the next request.  Otherwise store the plain text as usual.
+            if compaction_out:
+                store_content = json.dumps(compaction_out[0])
+            else:
+                store_content = full_content
 
             # Save the full assistant reply
             assistant_message_id = str(uuid.uuid4())
@@ -181,7 +238,7 @@ def chat_stream():
                         INSERT INTO messages (id, conversation_id, role, content, created_at)
                         VALUES (%s, %s, 'assistant', %s, NOW())
                         """,
-                        (assistant_message_id, conversation_id, full_content),
+                        (assistant_message_id, conversation_id, store_content),
                     )
                     cur.execute(
                         "UPDATE conversations SET updated_at = NOW() WHERE id = %s",

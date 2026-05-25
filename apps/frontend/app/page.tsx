@@ -6,6 +6,8 @@ import {
   cancelConversation,
   getConversation,
   listConversations,
+  resumeConversation,
+  stopConversation,
   streamMessage,
 } from "@/lib/api";
 import { PROVIDERS } from "@/lib/providers";
@@ -159,7 +161,12 @@ export default function ChatPage() {
   const [sidebarError, setSidebarError] = useState<string | null>(null);
   const [selectedProvider, setSelectedProvider] = useState("anthropic");
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [cancelledError, setCancelledError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  // Ref mirror of streamingContent — handleStop reads this instead of the state
+  // variable to avoid stale-closure issues when chunks arrive faster than renders.
+  const streamingContentRef = useRef("");
 
   /* Derived */
   const activeConv = conversations.find((c) => c.id === activeConvId) ?? null;
@@ -211,9 +218,82 @@ export default function ChatPage() {
     }
   }
 
+  async function handleStop() {
+    if (!abortControllerRef.current) return;
+    // Abort the fetch — the SSE read loop will throw AbortError and call onAbort
+    abortControllerRef.current.abort();
+    abortControllerRef.current = null;
+
+    // Read from the ref — guaranteed to be the latest accumulated content regardless
+    // of how many renders have (or haven't) happened since the last chunk arrived.
+    const partial = streamingContentRef.current;
+    streamingContentRef.current = "";
+    setStreamingContent("");
+    setStreaming(false);
+
+    // Immediately show whatever tokens arrived as a proper message bubble —
+    // no gap while waiting for the DB round-trip
+    if (partial && activeConvId) {
+      const optimisticMsg: Message = {
+        id: crypto.randomUUID(),
+        conversation_id: activeConvId,
+        role: "assistant",
+        content: partial,
+        created_at: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, optimisticMsg]);
+    }
+
+    if (activeConvId) {
+      let savedToDb = false;
+      try {
+        await stopConversation(activeConvId, partial);
+        savedToDb = true;
+      } catch {
+        /* ignore — conversation will be marked cancelled even if partial wasn't saved */
+      }
+      await refreshConversations();
+      // Only replace the optimistic message with the DB version if the save succeeded.
+      // If it failed, keep the optimistic message so the user still sees the partial.
+      if (savedToDb) {
+        try {
+          const data = await getConversation(activeConvId);
+          setMessages(data.messages ?? []);
+        } catch {
+          /* keep current messages */
+        }
+      }
+    }
+  }
+
+  const RESUME_RE = /\b(resume|continue|please continue|go on|keep going|carry on)\b/i;
+
   async function handleSend() {
     const text = input.trim();
     if (!text || loading || streaming) return;
+
+    // Track whether this send is a resume so we can tell the backend
+    let isResume = false;
+
+    // Handle cancelled conversation: only allow resume-intent messages
+    if (activeConv?.status === "cancelled") {
+      if (!RESUME_RE.test(text)) {
+        setCancelledError("Conversation is cancelled. Type ‘resume’ to continue.");
+        return;
+      }
+      // Resume intent detected — flip status back to active first
+      setCancelledError(null);
+      try {
+        await resumeConversation(activeConvId!);
+        await refreshConversations();
+      } catch {
+        setCancelledError("Failed to resume conversation. Please try again.");
+        return;
+      }
+      isResume = true;
+    }
+
+    setCancelledError(null);
 
     const convId = activeConvId ?? crypto.randomUUID();
     if (!activeConvId) setActiveConvId(convId);
@@ -230,29 +310,59 @@ export default function ChatPage() {
     setMessages(nextMessages);
     setInput("");
     setStreaming(true);
+    streamingContentRef.current = "";
     setStreamingContent("");
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
     await streamMessage(
       {
         messages: nextMessages.map((m) => ({ role: m.role, content: m.content })),
         conversationId: convId,
         provider: selectedProvider,
+        isResume,
       },
       (chunk) => {
+        streamingContentRef.current += chunk;
         setStreamingContent((prev) => prev + chunk);
       },
       async () => {
+        abortControllerRef.current = null;
+        streamingContentRef.current = "";
         setStreamingContent("");
         setStreaming(false);
         try {
           const data = await getConversation(convId);
-          setMessages(data.messages ?? []);
+          if (isResume) {
+            // Merge: keep any optimistic assistant messages (e.g. the stopped partial)
+            // that exist locally but never made it to the DB (e.g. if stopConversation
+            // failed). Sort by created_at so the partial stays in the right position.
+            setMessages((prev) => {
+              const dbIds = new Set((data.messages ?? []).map((m) => m.id));
+              const localOnly = prev.filter(
+                (m) => !dbIds.has(m.id) && m.role === "assistant"
+              );
+              if (localOnly.length === 0) return data.messages ?? [];
+              const merged = [...localOnly, ...(data.messages ?? [])];
+              merged.sort(
+                (a, b) =>
+                  new Date(a.created_at).getTime() -
+                  new Date(b.created_at).getTime()
+              );
+              return merged;
+            });
+          } else {
+            setMessages(data.messages ?? []);
+          }
         } catch {
           /* keep current */
         }
         await refreshConversations();
       },
       (error) => {
+        abortControllerRef.current = null;
+        streamingContentRef.current = "";
         setStreamingContent("");
         setStreaming(false);
         const errMessage: Message = {
@@ -263,7 +373,12 @@ export default function ChatPage() {
           created_at: new Date().toISOString(),
         };
         setMessages((prev) => [...prev, errMessage]);
-      }
+      },
+      () => {
+        // onAbort: handleStop() already cleans up state; just clear the ref here
+        abortControllerRef.current = null;
+      },
+      controller.signal
     );
   }
 
@@ -633,23 +748,6 @@ export default function ChatPage() {
                     {activeConv.status}
                   </span>
 
-                  {/* Cancel button — only for active conversations */}
-                  {activeConv.status !== "cancelled" && (
-                    <Button
-                      variant="outline"
-                      size="xs"
-                      onClick={(e) => handleCancel(activeConv.id, e)}
-                      style={{
-                        fontSize: "12px",
-                        color: "var(--color-cancelled-text)",
-                        borderColor: "var(--color-cancelled-text)",
-                        height: "22px",
-                        padding: "0 8px",
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                  )}
                 </div>
               </div>
             )}
@@ -789,6 +887,38 @@ export default function ChatPage() {
                   margin: "0 auto",
                 }}
               >
+                {/* Cancelled conversation banner */}
+                {activeConv?.status === "cancelled" && !streaming && (
+                  <div
+                    style={{
+                      marginBottom: "8px",
+                      padding: "8px 12px",
+                      borderRadius: "var(--radius-md)",
+                      background: "var(--color-cancelled-bg)",
+                      color: "var(--color-cancelled-text)",
+                      fontSize: "12px",
+                      fontWeight: 500,
+                    }}
+                  >
+                    Conversation cancelled. Type &ldquo;resume&rdquo; to continue.
+                  </div>
+                )}
+                {/* Inline error for blocked sends on cancelled conversations */}
+                {cancelledError && (
+                  <div
+                    style={{
+                      marginBottom: "8px",
+                      padding: "8px 12px",
+                      borderRadius: "var(--radius-md)",
+                      background: "var(--color-cancelled-bg)",
+                      color: "var(--color-cancelled-text)",
+                      fontSize: "12px",
+                      fontWeight: 500,
+                    }}
+                  >
+                    {cancelledError}
+                  </div>
+                )}
                 <div
                   style={{
                     display: "flex",
@@ -798,7 +928,6 @@ export default function ChatPage() {
                     borderRadius: "var(--radius-pill)",
                     padding: "8px 8px 8px 14px",
                     gap: "0",
-                    opacity: streaming ? 0.6 : 1,
                     transition: "opacity 200ms ease",
                   }}
                 >
@@ -835,10 +964,13 @@ export default function ChatPage() {
                   <textarea
                     className="chat-input"
                     value={input}
-                    onChange={(e) => setInput(e.target.value)}
+                    onChange={(e) => {
+                      setInput(e.target.value);
+                      if (cancelledError) setCancelledError(null);
+                    }}
                     onKeyDown={handleKeyDown}
                     disabled={isDisabled}
-                    placeholder="Ask anything..."
+                    placeholder={activeConv?.status === "cancelled" ? "Type 'resume' to continue..." : "Ask anything..."}
                     rows={1}
                     style={{
                       flex: 1,
@@ -856,26 +988,31 @@ export default function ChatPage() {
                     }}
                   />
 
-                  {/* Send button */}
+                  {/* Send / Stop button */}
                   <button
-                    onClick={handleSend}
-                    disabled={isDisabled || !input.trim()}
+                    onClick={streaming ? handleStop : handleSend}
+                    disabled={streaming ? false : (isDisabled || !input.trim())}
                     style={{
-                      background:
-                        isDisabled || !input.trim()
-                          ? "var(--color-accent-subtle)"
-                          : "var(--color-accent)",
-                      color:
-                        isDisabled || !input.trim()
-                          ? "var(--color-accent-text)"
-                          : "#FFFFFF",
+                      background: streaming
+                        ? "#dc2626"
+                        : isDisabled || !input.trim()
+                        ? "var(--color-accent-subtle)"
+                        : "var(--color-accent)",
+                      color: streaming
+                        ? "#FFFFFF"
+                        : isDisabled || !input.trim()
+                        ? "var(--color-accent-text)"
+                        : "#FFFFFF",
                       border: "none",
                       borderRadius: "var(--radius-md)",
                       padding: "6px 14px",
                       fontSize: "13px",
                       fontWeight: 500,
-                      cursor:
-                        isDisabled || !input.trim() ? "not-allowed" : "pointer",
+                      cursor: streaming
+                        ? "pointer"
+                        : isDisabled || !input.trim()
+                        ? "not-allowed"
+                        : "pointer",
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
@@ -887,18 +1024,21 @@ export default function ChatPage() {
                       marginLeft: "8px",
                     }}
                     onMouseEnter={(e) => {
-                      if (!isDisabled && input.trim()) {
-                        e.currentTarget.style.background =
-                          "var(--color-accent-hover)";
+                      if (streaming) {
+                        e.currentTarget.style.background = "#b91c1c";
+                      } else if (!isDisabled && input.trim()) {
+                        e.currentTarget.style.background = "var(--color-accent-hover)";
                       }
                     }}
                     onMouseLeave={(e) => {
-                      if (!isDisabled && input.trim()) {
+                      if (streaming) {
+                        e.currentTarget.style.background = "#dc2626";
+                      } else if (!isDisabled && input.trim()) {
                         e.currentTarget.style.background = "var(--color-accent)";
                       }
                     }}
                   >
-                    {streaming ? <Spinner /> : "Send"}
+                    {streaming ? "Stop" : "Send"}
                   </button>
                 </div>
               </div>

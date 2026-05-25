@@ -97,6 +97,51 @@ def cancel_conversation(conversation_id: str):
     return jsonify({"id": conversation_id, "status": "cancelled"})
 
 
+@conversations_bp.patch("/<conversation_id>/stop")
+def stop_conversation(conversation_id: str):
+    """Save a partial assistant response (if any) and mark the conversation cancelled."""
+    data = request.get_json(silent=True) or {}
+    partial_content = data.get("partial_content", "")
+
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            # Persist whatever tokens arrived before the user stopped
+            if partial_content:
+                cur.execute(
+                    """
+                    INSERT INTO messages (id, conversation_id, role, content, created_at)
+                    VALUES (gen_random_uuid(), %s, 'assistant', %s, NOW())
+                    """,
+                    (conversation_id, partial_content),
+                )
+
+            cur.execute(
+                "UPDATE conversations SET status = 'cancelled', updated_at = NOW() "
+                "WHERE id = %s RETURNING id",
+                (conversation_id,),
+            )
+            if cur.fetchone() is None:
+                return jsonify({"error": "Conversation not found"}), 404
+
+    return jsonify({"id": conversation_id, "status": "cancelled"})
+
+
+@conversations_bp.patch("/<conversation_id>/resume")
+def resume_conversation(conversation_id: str):
+    """Reactivate a cancelled conversation."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE conversations SET status = 'active', updated_at = NOW() "
+                "WHERE id = %s RETURNING id",
+                (conversation_id,),
+            )
+            if cur.fetchone() is None:
+                return jsonify({"error": "Conversation not found"}), 404
+
+    return jsonify({"id": conversation_id, "status": "active"})
+
+
 @conversations_bp.delete("/<conversation_id>")
 def delete_conversation(conversation_id: str):
     with get_conn() as conn:

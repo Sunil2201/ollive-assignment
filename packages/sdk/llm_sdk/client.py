@@ -140,6 +140,7 @@ class LLMClient:
         provider: str,
         messages: list[dict],
         options: ChatOptions | None = None,
+        compaction_out: list | None = None,
     ) -> Generator[str, None, None]:
         """
         Call *provider* with *messages* (streaming).
@@ -172,7 +173,7 @@ class LLMClient:
         full: list[str] = []
 
         try:
-            for chunk in route_stream(provider, messages, model):
+            for chunk in route_stream(provider, messages, model, compaction_out=compaction_out):
                 full.append(chunk)
                 yield chunk
 
