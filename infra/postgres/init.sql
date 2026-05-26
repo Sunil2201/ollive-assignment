@@ -25,6 +25,7 @@ CREATE TABLE inference_logs (
     model             VARCHAR(200)  NOT NULL,
     status            VARCHAR(50)   NOT NULL DEFAULT 'success',
     latency_ms        INTEGER,
+    ttft_ms           INTEGER,
     prompt_tokens     INTEGER,
     completion_tokens INTEGER,
     total_tokens      INTEGER,

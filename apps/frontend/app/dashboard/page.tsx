@@ -1237,7 +1237,7 @@ function ConversationDetailPanel({
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                {["#", "Provider", "Model", "Latency", "Prompt Tokens", "Completion Tokens", "Total Tokens", "Status", "Input Preview"].map((h) => (
+                {["#", "Provider", "Model", "Latency", "TTFT", "Prompt Tokens", "Completion Tokens", "Total Tokens", "Status", "Input Preview"].map((h) => (
                   <th
                     key={h}
                     style={{
@@ -1332,6 +1332,11 @@ function TurnRow({
       {/* Latency */}
       <td style={{ padding: "9px 10px", fontSize: "13px", color: "var(--color-text-primary)", whiteSpace: "nowrap" }}>
         {entry.latency_ms != null ? `${entry.latency_ms.toLocaleString()} ms` : "—"}
+      </td>
+
+      {/* TTFT */}
+      <td style={{ padding: "9px 10px", fontSize: "13px", color: "var(--color-text-primary)", whiteSpace: "nowrap" }}>
+        {entry.ttft_ms != null ? `${entry.ttft_ms.toLocaleString()} ms` : "—"}
       </td>
 
       {/* Prompt tokens */}

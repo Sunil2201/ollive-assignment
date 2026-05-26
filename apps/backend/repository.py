@@ -170,6 +170,7 @@ def get_inference_logs(cur, conversation_id: str) -> list[dict]:
             il.model,
             il.status,
             il.latency_ms,
+            il.ttft_ms,
             il.prompt_tokens,
             il.completion_tokens,
             il.total_tokens,

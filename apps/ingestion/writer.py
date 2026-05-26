@@ -10,14 +10,14 @@ from validator import InferenceLogModel
 _INSERT_SQL = """
 INSERT INTO inference_logs (
     id, conversation_id, provider, model, status,
-    latency_ms, prompt_tokens, completion_tokens, total_tokens,
+    latency_ms, ttft_ms, prompt_tokens, completion_tokens, total_tokens,
     error_code, error_message,
     request_at, response_at,
     input_preview, output_preview,
     pii_redacted, raw_metadata
 ) VALUES (
     %s, %s, %s, %s, %s,
-    %s, %s, %s, %s,
+    %s, %s, %s, %s, %s,
     %s, %s,
     %s, %s,
     %s, %s,
@@ -37,6 +37,7 @@ def _execute_insert(cur, log: InferenceLogModel, conversation_id) -> None:
             log.model,
             log.status,
             log.latency_ms,
+            log.ttft_ms,
             log.prompt_tokens,
             log.completion_tokens,
             log.total_tokens,

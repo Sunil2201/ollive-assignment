@@ -6,6 +6,7 @@ from flask import Blueprint, Response, jsonify, request
 from db import get_conn
 from llm_sdk import LLMClient
 from llm_sdk.client import PROVIDER_MODELS
+from llm_sdk.redactor import redact_pii
 from llm_sdk.types import ChatOptions
 from prompts import RESUME_CONTINUATION
 
@@ -27,10 +28,11 @@ def chat():
     if provider not in PROVIDER_MODELS:
         return jsonify({"error": "unsupported provider"}), 400
 
-    title = next(
+    raw_title = next(
         (m["content"][:60] for m in messages if m.get("role") == "user"),
         "New conversation",
     )
+    title, _ = redact_pii(raw_title)
 
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -92,10 +94,11 @@ def chat_stream():
     if provider not in PROVIDER_MODELS:
         return jsonify({"error": "unsupported provider"}), 400
 
-    title = next(
+    raw_title = next(
         (m["content"][:60] for m in messages if m.get("role") == "user"),
         "New conversation",
     )
+    title, _ = redact_pii(raw_title)
 
     with get_conn() as conn:
         with conn.cursor() as cur:

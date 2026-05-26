@@ -46,6 +46,7 @@ export interface InferenceLogEntry {
   model: string;
   status: "success" | "error";
   latency_ms: number | null;
+  ttft_ms: number | null;
   prompt_tokens: number | null;
   completion_tokens: number | null;
   total_tokens: number | null;

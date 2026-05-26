@@ -37,6 +37,18 @@ class LLMClient:
         return model
 
     def _input_preview(self, messages: list[dict]) -> tuple[str, bool]:
+        # Find the last user message and use only its content text
+        for msg in reversed(messages):
+            if msg.get("role") == "user":
+                content = msg.get("content", "")
+                if isinstance(content, list):
+                    # Some providers pass content as a list of blocks
+                    content = " ".join(
+                        block.get("text", "") if isinstance(block, dict) else str(block)
+                        for block in content
+                    )
+                return redact_pii(str(content)[:500])
+        # Fallback: no user message found
         return redact_pii(str(messages)[:500])
 
 
@@ -119,10 +131,13 @@ class LLMClient:
         )
 
         t0 = time.monotonic()
+        ttft: float | None = None
         full: list[str] = []
 
         try:
             for chunk in route_stream(provider, messages, model, compaction_out=compaction_out):
+                if ttft is None:
+                    ttft = time.monotonic() - t0
                 full.append(chunk)
                 yield chunk
 
@@ -145,6 +160,7 @@ class LLMClient:
             raise
 
         finally:
+            log.ttft_ms = int(ttft * 1000) if ttft is not None else None
             log.response_at = datetime.now(tz=timezone.utc)
             log.latency_ms = int((time.monotonic() - t0) * 1000)
             self._transport.send(log)

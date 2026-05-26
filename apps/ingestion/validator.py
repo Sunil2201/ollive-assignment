@@ -16,6 +16,7 @@ class InferenceLogModel(BaseModel):
     status: str = "success"
 
     latency_ms: Optional[int] = None
+    ttft_ms: Optional[int] = None
     prompt_tokens: Optional[int] = None
     completion_tokens: Optional[int] = None
     total_tokens: Optional[int] = None

@@ -224,22 +224,6 @@ function InputBarContents({
 }: InputBarContentsProps) {
   return (
     <>
-      {/* Cancelled conversation banner */}
-      {activeConv?.status === "cancelled" && !streaming && (
-        <div
-          style={{
-            marginBottom: "8px",
-            padding: "8px 12px",
-            borderRadius: "var(--radius-md)",
-            background: "var(--color-cancelled-bg)",
-            color: "var(--color-cancelled-text)",
-            fontSize: "12px",
-            fontWeight: 500,
-          }}
-        >
-          Conversation cancelled. Type &ldquo;resume&rdquo; to continue.
-        </div>
-      )}
       {/* Inline error for blocked sends on cancelled conversations */}
       {cancelledError && (
         <div
@@ -543,29 +527,39 @@ export default function ChatPage() {
 
     // Track whether this send is a resume so we can tell the backend
     let isResume = false;
+    // Track whether this is a brand-new conversation (unrelated message on a cancelled conv)
+    let isNewConversation = false;
 
-    // Handle cancelled conversation: only allow resume-intent messages
+    // Handle cancelled conversation: resume if intent detected, otherwise start fresh
     if (activeConv?.status === "cancelled") {
-      if (!RESUME_RE.test(text)) {
-        setCancelledError("Conversation is cancelled. Type ‘resume’ to continue.");
-        return;
+      if (RESUME_RE.test(text)) {
+        // Resume intent detected — flip status back to active first
+        setCancelledError(null);
+        try {
+          await resumeConversation(activeConvId!);
+          await refreshConversations();
+        } catch {
+          setCancelledError("Failed to resume conversation. Please try again.");
+          return;
+        }
+        isResume = true;
+      } else {
+        // Unrelated message — start a brand-new conversation instead of blocking
+        setCancelledError(null);
+        isNewConversation = true;
       }
-      // Resume intent detected — flip status back to active first
-      setCancelledError(null);
-      try {
-        await resumeConversation(activeConvId!);
-        await refreshConversations();
-      } catch {
-        setCancelledError("Failed to resume conversation. Please try again.");
-        return;
-      }
-      isResume = true;
     }
 
     setCancelledError(null);
 
-    const convId = activeConvId ?? crypto.randomUUID();
-    if (!activeConvId) setActiveConvId(convId);
+    const convId = isNewConversation
+      ? crypto.randomUUID()
+      : (activeConvId ?? crypto.randomUUID());
+
+    if (!activeConvId || isNewConversation) setActiveConvId(convId);
+
+    // For a new conversation, start with an empty history; otherwise carry forward existing messages
+    const baseMessages = isNewConversation ? [] : messages;
 
     const userMessage: Message = {
       id: crypto.randomUUID(),
@@ -575,7 +569,7 @@ export default function ChatPage() {
       created_at: new Date().toISOString(),
     };
 
-    const nextMessages = [...messages, userMessage];
+    const nextMessages = [...baseMessages, userMessage];
     setMessages(nextMessages);
     setInput("");
     setStreaming(true);

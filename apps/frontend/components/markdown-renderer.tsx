@@ -1,5 +1,6 @@
 "use client"
 
+import React from "react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import type { Components } from "react-markdown"
@@ -34,15 +35,70 @@ const components: Components = {
       {children}
     </h3>
   ),
-  ul: ({ children }) => (
-    <ul style={{ margin: "0 0 10px", paddingLeft: "20px" }}>{children}</ul>
+  ul: ({ children, className }) => (
+    <ul
+      style={{
+        margin: "0 0 10px",
+        paddingLeft: className === "contains-task-list" ? "4px" : "20px",
+      }}
+    >
+      {children}
+    </ul>
   ),
   ol: ({ children }) => (
     <ol style={{ margin: "0 0 10px", paddingLeft: "20px" }}>{children}</ol>
   ),
-  li: ({ children }) => (
-    <li style={{ marginBottom: "4px", lineHeight: 1.6 }}>{children}</li>
-  ),
+  li: ({ children, className }) => {
+    const isTask = className === "task-list-item"
+    return (
+      <li
+        style={{
+          marginBottom: "4px",
+          lineHeight: 1.6,
+          display: isTask ? "flex" : "list-item",
+          alignItems: isTask ? "flex-start" : undefined,
+          listStyle: isTask ? "none" : undefined,
+          marginLeft: isTask ? "-4px" : undefined,
+        }}
+      >
+        {children}
+      </li>
+    )
+  },
+  input: ({ type, checked }) => {
+    if (type !== "checkbox") return <input type={type} />
+    return (
+      <span
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: "15px",
+          height: "15px",
+          borderRadius: "3px",
+          border: checked ? "none" : "1.5px solid #94A3B8",
+          background: checked ? "#6366F1" : "transparent",
+          marginRight: "7px",
+          flexShrink: 0,
+          verticalAlign: "middle",
+          position: "relative",
+          top: "-1px",
+        }}
+      >
+        {checked && (
+          <svg width="9" height="7" viewBox="0 0 9 7" fill="none">
+            <path
+              d="M1 3.5L3.5 6L8 1"
+              stroke="white"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        )}
+      </span>
+    )
+  },
   blockquote: ({ children }) => (
     <blockquote
       style={{
@@ -117,23 +173,33 @@ const components: Components = {
     )
   },
 
-  pre: ({ children }) => (
-    <pre
-      style={{
-        background: "#0F172A",
-        color: "#E2E8F0",
-        borderRadius: "8px",
-        padding: "14px 16px",
-        margin: "8px 0 12px",
-        overflowX: "auto",
-        fontSize: "13px",
-        lineHeight: 1.6,
-        fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-      }}
-    >
-      {children}
-    </pre>
-  ),
+  pre: ({ children }) => {
+    // Only apply dark theme when there's an actual language-tagged code block
+    const hasLanguage = React.Children.toArray(children).some(
+      (child) =>
+        React.isValidElement(child) &&
+        typeof (child.props as { className?: string }).className === "string" &&
+        (child.props as { className?: string }).className?.startsWith("language-")
+    )
+    return (
+      <pre
+        style={{
+          background: hasLanguage ? "#0F172A" : "#F8FAFC",
+          color: hasLanguage ? "#E2E8F0" : "inherit",
+          borderRadius: "8px",
+          padding: "14px 16px",
+          margin: "8px 0 12px",
+          overflowX: "auto",
+          fontSize: "13px",
+          lineHeight: 1.6,
+          fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+          border: hasLanguage ? "none" : "1px solid #E2E8F0",
+        }}
+      >
+        {children}
+      </pre>
+    )
+  },
 
   // ── Tables (remark-gfm) ──────────────────────────────────────
   table: ({ children }) => (

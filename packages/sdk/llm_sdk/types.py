@@ -14,6 +14,7 @@ class InferenceLog:
     model: str = ""
     status: str = "success"  # 'success' | 'error'
     latency_ms: int | None = None
+    ttft_ms: int | None = None
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
     total_tokens: int | None = None
@@ -34,6 +35,7 @@ class InferenceLog:
             "model": self.model,
             "status": self.status,
             "latency_ms": self.latency_ms,
+            "ttft_ms": self.ttft_ms,
             "prompt_tokens": self.prompt_tokens,
             "completion_tokens": self.completion_tokens,
             "total_tokens": self.total_tokens,
