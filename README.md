@@ -4,16 +4,76 @@
 
 | Layer | Technology |
 |-------|-----------|
-| Frontend | React 19, Vite, Redux Toolkit, React Redux, Tailwind CSS v4, shadcn/ui, Lucide React |
+| Frontend | React 19, Next.js, Tailwind CSS v4, shadcn/ui, Lucide React |
 | Backend API | Python 3.11+, Flask, gevent |
 | Ingestion Service | Python 3.11+, Flask, Redis Streams |
 | LLM SDK | Internal package (`llm_sdk`) — anthropic, openai, google-genai |
-| Database | PostgreSQL 15+ |
-| Cache / Queue | Redis |
+| Database | PostgreSQL 16 |
+| Cache / Queue | Redis 7 |
 
 ---
 
 ## Setup Instructions
+
+### Prerequisites
+
+- [Docker](https://www.docker.com/products/docker-desktop) and Docker Compose
+
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/Sunil2201/ollive-assignment
+cd ollive-assignment
+```
+
+### 2. Create environment file
+
+Copy `.env.example` to `.env` and fill in your API keys:
+
+```bash
+cp .env.example .env
+```
+
+Then open `.env` and set the three API keys:
+
+```env
+ANTHROPIC_API_KEY=sk-ant-...
+OPENAI_API_KEY=sk-...
+GEMINI_API_KEY=...
+```
+
+> All other values (`DATABASE_URL`, `REDIS_URL`, `INGESTION_URL`, ports) are already overridden by `docker-compose.yml` with the correct Docker service names — leave them as-is.
+
+### 3. Start the stack
+
+```bash
+docker compose up -d
+```
+
+This builds and starts all five services:
+
+| Container | URL |
+|-----------|-----|
+| Frontend | http://localhost:3000 |
+| Backend API | http://localhost:5000 |
+| Ingestion Service | http://localhost:5001 |
+| PostgreSQL | localhost:5432 |
+| Redis | localhost:6379 |
+
+Visit **http://localhost:3000** to open the dashboard.
+
+### 4. Stop the stack
+
+```bash
+docker compose down
+```
+
+---
+
+## Manual Setup (without Docker)
+
+<details>
+<summary>Expand for manual setup instructions</summary>
 
 ### Prerequisites
 
@@ -22,36 +82,25 @@
 - PostgreSQL 15+
 - Redis
 
-### 1. Clone and install frontend dependencies
+### 1. Install frontend dependencies
 
 ```bash
-git clone https://github.com/Sunil2201/ollive-assignment
-cd ollive-assignment
 npm install
 ```
 
 ### 2. Create environment file
 
-Copy `.env.example` to `.env` in the project root and fill in the values:
+Copy `.env.example` to `.env` and fill in all values:
 
 ```env
-# LLM Provider API Keys
 ANTHROPIC_API_KEY=sk-ant-...
 OPENAI_API_KEY=sk-...
 GEMINI_API_KEY=...
-
-# Database
 DATABASE_URL=postgresql://postgres:password@localhost:5432/llm_logger
-
-# Redis
 REDIS_URL=redis://localhost:6379
-
-# Service ports
 FLASK_PORT=5000
 INGESTION_PORT=5001
-
-# LLM token limits
-MAX_CONTEXT_TOKENS=8000
+MAX_CONTEXT_TOKENS=16000
 MAX_OUTPUT_TOKENS=16000
 COMPACTION_TRIGGER_TOKENS=50000
 ```
@@ -66,23 +115,17 @@ psql -U postgres -d llm_logger -f infra/postgres/init.sql
 ### 4. Install Python dependencies
 
 ```bash
-# Internal SDK (editable install — required by both backend and ingestion)
-cd packages/sdk
-pip install -e .
-cd ../..
+# Internal SDK (required by both backend and ingestion)
+pip install packages/sdk
 
 # Backend
-cd apps/backend
-pip install -r requirements.txt
-cd ../..
+pip install -r apps/backend/requirements.txt
 
 # Ingestion service
-cd apps/ingestion
-pip install -r requirements.txt
-cd ../..
+pip install -r apps/ingestion/requirements.txt
 ```
 
-> **Tip:** Use a single virtual environment at the repo root so the SDK editable install is shared.
+> **Tip:** Use a single virtual environment at the repo root so the SDK install is shared.
 
 ### 5. Start services
 
@@ -101,14 +144,14 @@ python app.py
 npm run dev
 ```
 
-Visit **http://localhost:3000** to open the dashboard.
+</details>
 
 ---
 
 ## Architecture Overview
 
 ```
-Browser (React 19 + Vite)
+Browser (React 19 + Next.js)
       │  SSE stream + REST
       ▼
 Backend API (Flask/Python)   ←──── SDK wraps every LLM call
@@ -153,7 +196,7 @@ Decoupled from messages — a log row records one LLM API call. `conversation_id
 | Decision | Tradeoff |
 |----------|---------|
 | **Session-based isolation (no auth)** | Fast to build and stateless. Not suitable for production multi-user deployments — any client that guesses a session ID can read its data. |
-| **Context trimming at 8,000 tokens** | Keeps costs predictable but may truncate long conversations. Anthropic's compaction feature is used as an alternative for that provider. |
+| **Context trimming at 16,000 tokens** | Keeps costs predictable but may truncate long conversations. Anthropic's compaction feature is used as an alternative for that provider. |
 | **`input_preview` truncation at 500 chars** | Protects DB storage but loses full content for post-hoc analysis. A separate cold-storage path (e.g., S3) would capture full payloads. |
 
 ---
@@ -162,6 +205,5 @@ Decoupled from messages — a log row records one LLM API call. `conversation_id
 
 1. **Authentication & authorisation** — Replace `X-Session-ID` with JWTs or session cookies so data is properly scoped to authenticated users.
 2. **Memory with Mem0** — Integrate [Mem0](https://mem0.ai) to give the assistant persistent, user-scoped memory across conversations, enabling more coherent long-running interactions.
-3. **AWS deployment + containerisation** — Package each service as a Docker container, push to ECR, and deploy via ECS Fargate (or EKS). Add RDS for Postgres and ElastiCache for Redis to get managed scaling, backups, and HA out of the box.
+3. **AWS deployment** — Push each Docker image to ECR and deploy via ECS Fargate (or EKS). Add RDS for Postgres and ElastiCache for Redis to get managed scaling, backups, and HA out of the box.
 4. **Worker-queue for parallel LLM tasks** — Replace the single daemon thread with a proper worker queue (Celery + Redis or AWS SQS) to process multiple inference log batches in parallel and handle traffic spikes gracefully.
-5. **Docker Compose for local dev** — A single `docker-compose up` to spin up Postgres, Redis, backend, ingestion, and frontend removes the multi-terminal setup burden entirely.

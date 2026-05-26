@@ -1,0 +1,24 @@
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/*.egg-info
+
+# Node
+**/node_modules
+**/.next
+
+# Git / IDE
+.git
+.gitignore
+.idea
+.vscode
+
+# Local env files (injected at runtime via env_file / environment in compose)
+**/.env
+.env
+
+# Docs / misc
+*.md
